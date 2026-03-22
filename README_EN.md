@@ -59,7 +59,8 @@ Download a pre-built binary from [Releases](https://github.com/Darkatse/TT-Sync/
 
 ```bash
 tt-sync init \
-  --data-root /path/to/sillytavern/data/ \
+  --path /path/to/tauritavern/data/ \
+  --layout tauritavern \
   --public-url https://my-vps.example.com:8443
 ```
 
@@ -123,8 +124,7 @@ tt-sync peers revoke "My Phone"
 | `pair open` | Generate a one-time pairing token + URI |
 | `peers list` | Show all paired devices in a table |
 | `peers revoke` | Remove a paired device |
-| `profile list` | Show what directories each scope profile includes |
-| `doctor` | Validate config, TLS, data root, identity |
+| `doctor` | Validate config, TLS, workspace/mounts, identity |
 | `cert show` | Display SPKI SHA-256 fingerprint |
 | `cert rotate-leaf` | Re-sign TLS cert with same key (preserves SPKI pin) |
 
@@ -138,16 +138,17 @@ tt-sync peers revoke "My Phone"
 
 ---
 
-## Scope Profiles
+## Layout Mode
 
-TT-Sync ships with two built-in sync scope profiles:
+TT-Sync v2 uses a **single full sync dataset** (a fixed allowlist; no `compatible-minimal`).
 
-| Profile | Description |
-|---------|-------------|
-| `default` | Full TauriTavern user content — characters, chats, settings, themes, extensions, etc. |
-| `compatible-minimal` | Exact equivalent of the v1 LAN Sync whitelist. Suitable for SillyTavern compatibility. |
+What you choose is the **layout mode**: how the canonical wire paths map onto your local folder structure (most importantly, where global third-party extensions live).
 
-Use `tt-sync profile list` to see exactly which directories and files each profile covers.
+| `--layout` | Target folder layout | Global extensions mapping |
+|-----------|----------------------|--------------------------|
+| `tauritavern` | TauriTavern `data/` | `extensions/third-party` → `data/extensions/third-party` |
+| `sillytavern` | SillyTavern repo layout | `extensions/third-party` → `public/scripts/extensions/third-party` |
+| `sillytavern-docker` | SillyTavern docker volume layout | `extensions/third-party` → `./extensions` |
 
 ---
 
@@ -165,7 +166,7 @@ Use `tt-sync profile list` to see exactly which directories and files each profi
 ├──────────────────────────────────────────────────────────┤
 │  Layer 3: Authorization                                  │
 │  Per-peer ACL: read / write / mirror-delete              │
-│  Scope profile restricts visible directories             │
+│  Fixed dataset allowlist restricts visible paths         │
 └──────────────────────────────────────────────────────────┘
 ```
 

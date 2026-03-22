@@ -5,17 +5,15 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use ttsync_contract::pair::{PairCompleteRequest, PairCompleteResponse, PairUri};
 use ttsync_contract::peer::{DeviceId, PeerGrant, Permissions};
-use ttsync_contract::sync::ScopeProfileId;
 
 use crate::error::SyncError;
 
 /// Configuration for a pairing session.
 pub struct PairingConfig {
-    pub profile: ScopeProfileId,
     pub permissions: Permissions,
     pub expires_in_secs: u64,
 }
@@ -69,14 +67,15 @@ pub fn complete_pairing(
         .decode(&request.device_pubkey)
         .map_err(|_| SyncError::InvalidData("invalid device_pubkey".into()))?;
     if public_key.len() != 32 {
-        return Err(SyncError::InvalidData("invalid device_pubkey length".into()));
+        return Err(SyncError::InvalidData(
+            "invalid device_pubkey length".into(),
+        ));
     }
 
     let grant = PeerGrant {
         device_id: request.device_id.clone(),
         device_name: request.device_name.clone(),
         public_key,
-        profile: session.config.profile,
         permissions: session.config.permissions,
         paired_at_ms: now_ms,
         last_sync_ms: None,
@@ -85,7 +84,6 @@ pub fn complete_pairing(
     let response = PairCompleteResponse {
         server_device_id: server_device_id.clone(),
         server_device_name: server_device_name.to_owned(),
-        granted_profile: session.config.profile,
         granted_permissions: session.config.permissions,
     };
 

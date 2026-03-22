@@ -37,7 +37,7 @@
 | Purpose | Crate | Usage |
 |---------|-------|-------|
 | Device identity (long-term) | **ed25519-dalek** | Each device generates a persistent Ed25519 keypair. Used for session-open signatures. |
-| Request signing | **sha2**, **hmac** | Canonical request HMAC for v1 compatibility path; Ed25519 signature for v2 primary auth. |
+| Request signatures | **ed25519-dalek**, **sha2** | Ed25519 signature over canonical request (includes SHA-256 of request body). |
 | TLS certificate generation | **rcgen** | Generates self-signed X.509 leaf cert with long-term TLS key. Self-managed mode only. |
 | TLS runtime | **rustls** | Both server and client TLS. Pure Rust, no system OpenSSL dependency. |
 | Content hashing (optional) | **blake3** | Optional file content verification mode. Not used in default `mtime+size` fast path. |
@@ -58,7 +58,7 @@
 |---------|-------|-----------|
 | Argument parsing | **clap** (derive) | Industry standard. Supports subcommands, value validation, shell completions. |
 | Progress bars | **indicatif** | Terminal progress bars and spinners for sync operations. |
-| Table output | **comfy-table** | Formatted tables for `peers list`, `profile list`, etc. |
+| Table output | **comfy-table** | Formatted tables for `peers list`, etc. |
 | Structured logging | **tracing** + **tracing-subscriber** | Consistent with TauriTavern's logging infrastructure. Supports JSON output. |
 
 ## File System

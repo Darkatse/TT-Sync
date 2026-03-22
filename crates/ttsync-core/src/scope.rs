@@ -1,29 +1,7 @@
-//! Scope profile definitions: which paths are included/excluded per profile.
+//! Dataset scope definition: which wire paths are included/excluded in TT-Sync v2.
 
-use ttsync_contract::sync::ScopeProfileId;
-
-/// Directories included in the `CompatibleMinimal` profile (v1 whitelist equivalent).
-pub const COMPATIBLE_MINIMAL_DIRECTORIES: &[&str] = &[
-    "default-user/chats",
-    "default-user/characters",
-    "default-user/groups",
-    "default-user/group chats",
-    "default-user/worlds",
-    "default-user/themes",
-    "default-user/user",
-    "default-user/User Avatars",
-    "default-user/OpenAI Settings",
-    "default-user/extensions",
-    "extensions/third-party",
-    "_tauritavern/extension-sources/local",
-    "_tauritavern/extension-sources/global",
-];
-
-/// Files included in the `CompatibleMinimal` profile.
-pub const COMPATIBLE_MINIMAL_FILES: &[&str] = &["default-user/settings.json"];
-
-/// Directories included in the `Default` (tauritavern-user) profile.
-pub const DEFAULT_DIRECTORIES: &[&str] = &[
+/// Directories included in the v2 default dataset.
+pub const DIRECTORIES: &[&str] = &[
     "default-user/chats",
     "default-user/characters",
     "default-user/groups",
@@ -47,34 +25,27 @@ pub const DEFAULT_DIRECTORIES: &[&str] = &[
     "_tauritavern/extension-sources/global",
 ];
 
-/// Files included in the `Default` profile.
-pub const DEFAULT_FILES: &[&str] = &["default-user/settings.json"];
-
-/// Paths excluded from all profiles.
-pub const GLOBAL_EXCLUSIONS: &[&str] = &[
-    "default-user/user/lan-sync",
-    "secrets.json",
+/// Individual files included in the v2 default dataset.
+pub const FILES: &[&str] = &[
+    "default-user/settings.json",
+    "default-user/secrets.json",
+    "default-user/tauritavern-settings.json",
+    "default-user/image-metadata.json",
 ];
 
-/// Returns the included directories for a given scope profile.
-pub fn included_directories(profile: &ScopeProfileId) -> &'static [&'static str] {
-    match profile {
-        ScopeProfileId::CompatibleMinimal => COMPATIBLE_MINIMAL_DIRECTORIES,
-        ScopeProfileId::Default => DEFAULT_DIRECTORIES,
-    }
+/// Paths excluded from the dataset.
+pub const EXCLUSIONS: &[&str] = &["default-user/user/lan-sync"];
+
+pub fn included_directories() -> &'static [&'static str] {
+    DIRECTORIES
 }
 
-/// Returns the included individual files for a given scope profile.
-pub fn included_files(profile: &ScopeProfileId) -> &'static [&'static str] {
-    match profile {
-        ScopeProfileId::CompatibleMinimal => COMPATIBLE_MINIMAL_FILES,
-        ScopeProfileId::Default => DEFAULT_FILES,
-    }
+pub fn included_files() -> &'static [&'static str] {
+    FILES
 }
 
-/// Returns true if the given relative path is globally excluded.
 pub fn is_excluded(relative_path: &str) -> bool {
-    GLOBAL_EXCLUSIONS.iter().any(|excluded| {
+    EXCLUSIONS.iter().any(|excluded| {
         relative_path == *excluded
             || relative_path
                 .strip_prefix(excluded)
@@ -82,17 +53,16 @@ pub fn is_excluded(relative_path: &str) -> bool {
     })
 }
 
-/// Returns true if the path falls within one of the scoped directories for the profile.
-pub fn is_in_scope(relative_path: &str, profile: &ScopeProfileId) -> bool {
+pub fn is_in_scope(relative_path: &str) -> bool {
     if is_excluded(relative_path) {
         return false;
     }
 
-    if included_files(profile).contains(&relative_path) {
+    if FILES.contains(&relative_path) {
         return true;
     }
 
-    included_directories(profile).iter().any(|dir| {
+    DIRECTORIES.iter().any(|dir| {
         relative_path
             .strip_prefix(dir)
             .is_some_and(|suffix| suffix.starts_with('/'))

@@ -2,8 +2,8 @@
 
 use std::sync::Arc;
 
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use rcgen::CertifiedKey;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
@@ -36,7 +36,10 @@ impl SyncClient {
                 .map_err(|e| SyncError::Internal(e.to_string()))?,
         };
 
-        Ok(Self { http: client, base_url })
+        Ok(Self {
+            http: client,
+            base_url,
+        })
     }
 
     pub fn http(&self) -> &reqwest::Client {
@@ -48,7 +51,9 @@ impl SyncClient {
     }
 }
 
-fn build_pinned_rustls_config(expected_spki_sha256: &str) -> Result<rustls::ClientConfig, SyncError> {
+fn build_pinned_rustls_config(
+    expected_spki_sha256: &str,
+) -> Result<rustls::ClientConfig, SyncError> {
     let signature_verifier = build_signature_verifier()?;
 
     let verifier = SpkiPinVerifier {
@@ -56,10 +61,11 @@ fn build_pinned_rustls_config(expected_spki_sha256: &str) -> Result<rustls::Clie
         signature_verifier,
     };
 
-    let mut config = rustls::ClientConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
-        .dangerous()
-        .with_custom_certificate_verifier(Arc::new(verifier))
-        .with_no_client_auth();
+    let mut config =
+        rustls::ClientConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(verifier))
+            .with_no_client_auth();
 
     config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
     Ok(config)

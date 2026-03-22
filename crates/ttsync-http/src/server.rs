@@ -12,8 +12,8 @@ use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use futures_util::TryStreamExt;
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -25,12 +25,12 @@ use ttsync_contract::pair::{PairCompleteRequest, PairCompleteResponse};
 use ttsync_contract::path::SyncPath;
 use ttsync_contract::plan::{CommitResponse, PlanId, PullPlanRequest, PushPlanRequest, SyncPlan};
 use ttsync_contract::session::{
-    SessionOpenRequest, SessionOpenResponse, SessionToken, HEADER_DEVICE_ID, HEADER_NONCE,
-    HEADER_SIGNATURE, HEADER_TIMESTAMP_MS,
+    HEADER_DEVICE_ID, HEADER_NONCE, HEADER_SIGNATURE, HEADER_TIMESTAMP_MS, SessionOpenRequest,
+    SessionOpenResponse, SessionToken,
 };
-use ttsync_contract::sync::{ScopeProfileId, SyncMode};
+use ttsync_contract::sync::SyncMode;
 use ttsync_core::error::SyncError;
-use ttsync_core::pairing::{complete_pairing, PairingSession};
+use ttsync_core::pairing::{PairingSession, complete_pairing};
 use ttsync_core::plan::compute_plan;
 use ttsync_core::ports::{ManifestStore, PeerStore};
 use ttsync_core::session::SessionManager;
@@ -125,8 +125,7 @@ where
         .local_addr()
         .map_err(|e| SyncError::Io(e.to_string()))?;
 
-    let app = Router::new()
-        .route("/v2/status", get(handle_status));
+    let app = Router::new().route("/v2/status", get(handle_status));
 
     let app = app
         .route("/v2/pair/complete", post(handle_pair_complete::<M, P>))
@@ -239,8 +238,10 @@ where
     M: ManifestStore + 'static,
     P: PeerStore + 'static,
 {
-    let device_id = header_str(&headers, HEADER_DEVICE_ID)
-        .and_then(|s| ttsync_contract::peer::DeviceId::new(s.to_owned()).map_err(|e| SyncError::InvalidData(e.to_string())))?;
+    let device_id = header_str(&headers, HEADER_DEVICE_ID).and_then(|s| {
+        ttsync_contract::peer::DeviceId::new(s.to_owned())
+            .map_err(|e| SyncError::InvalidData(e.to_string()))
+    })?;
 
     let timestamp_ms = header_str(&headers, HEADER_TIMESTAMP_MS)?
         .parse::<u64>()
@@ -252,8 +253,8 @@ where
         .decode(signature_b64)
         .map_err(|_| SyncError::InvalidData("invalid TT-Signature".into()))?;
 
-    let request_body =
-        serde_json::from_slice::<SessionOpenRequest>(&body).map_err(|e| SyncError::InvalidData(e.to_string()))?;
+    let request_body = serde_json::from_slice::<SessionOpenRequest>(&body)
+        .map_err(|e| SyncError::InvalidData(e.to_string()))?;
     if request_body.device_id != device_id {
         return Err(SyncError::Unauthorized("device_id mismatch".into()).into());
     }
@@ -282,7 +283,9 @@ where
 
     let grant = match state.peer_store.get_peer(&device_id).await {
         Ok(grant) => grant,
-        Err(SyncError::NotFound(_)) => return Err(SyncError::Unauthorized("unknown peer".into()).into()),
+        Err(SyncError::NotFound(_)) => {
+            return Err(SyncError::Unauthorized("unknown peer".into()).into());
+        }
         Err(e) => return Err(e.into()),
     };
 
@@ -306,15 +309,19 @@ where
     P: PeerStore + 'static,
 {
     let peer = authenticate_peer(&state, &headers).await?;
-    ensure_profile_allowed(peer.grant.profile, request.profile)?;
     ensure_mode_allowed(&peer.grant, request.mode)?;
     if !peer.grant.permissions.read {
         return Err(SyncError::Unauthorized("read not granted".into()).into());
     }
 
-    let source_manifest = state.manifest_store.scan(&request.profile).await?;
+    let source_manifest = state.manifest_store.scan().await?;
     let plan_id = PlanId(Uuid::new_v4().to_string());
-    let plan = compute_plan(plan_id, &source_manifest, &request.target_manifest, request.mode);
+    let plan = compute_plan(
+        plan_id,
+        &source_manifest,
+        &request.target_manifest,
+        request.mode,
+    );
 
     insert_plan(
         &state,
@@ -337,15 +344,19 @@ where
     P: PeerStore + 'static,
 {
     let peer = authenticate_peer(&state, &headers).await?;
-    ensure_profile_allowed(peer.grant.profile, request.profile)?;
     ensure_mode_allowed(&peer.grant, request.mode)?;
     if !peer.grant.permissions.write {
         return Err(SyncError::Unauthorized("write not granted".into()).into());
     }
 
-    let target_manifest = state.manifest_store.scan(&request.profile).await?;
+    let target_manifest = state.manifest_store.scan().await?;
     let plan_id = PlanId(Uuid::new_v4().to_string());
-    let plan = compute_plan(plan_id, &request.source_manifest, &target_manifest, request.mode);
+    let plan = compute_plan(
+        plan_id,
+        &request.source_manifest,
+        &target_manifest,
+        request.mode,
+    );
 
     insert_plan(
         &state,
@@ -509,7 +520,9 @@ where
 
     let grant = match state.peer_store.get_peer(&device_id).await {
         Ok(grant) => grant,
-        Err(SyncError::NotFound(_)) => return Err(SyncError::Unauthorized("unknown peer".into()).into()),
+        Err(SyncError::NotFound(_)) => {
+            return Err(SyncError::Unauthorized("unknown peer".into()).into());
+        }
         Err(e) => return Err(e.into()),
     };
 
@@ -543,15 +556,10 @@ fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Result<&'a str, SyncErr
         .map_err(|_| SyncError::InvalidData(format!("invalid header: {}", name)))
 }
 
-fn ensure_profile_allowed(granted: ScopeProfileId, requested: ScopeProfileId) -> Result<(), SyncError> {
-    match (granted, requested) {
-        (ScopeProfileId::Default, _) => Ok(()),
-        (ScopeProfileId::CompatibleMinimal, ScopeProfileId::CompatibleMinimal) => Ok(()),
-        _ => Err(SyncError::Unauthorized("profile not granted".into())),
-    }
-}
-
-fn ensure_mode_allowed(grant: &ttsync_contract::peer::PeerGrant, mode: SyncMode) -> Result<(), SyncError> {
+fn ensure_mode_allowed(
+    grant: &ttsync_contract::peer::PeerGrant,
+    mode: SyncMode,
+) -> Result<(), SyncError> {
     if mode == SyncMode::Mirror && !grant.permissions.mirror_delete {
         return Err(SyncError::Unauthorized("mirror delete not granted".into()));
     }
@@ -562,7 +570,8 @@ fn decode_sync_path_b64(value: &str) -> Result<SyncPath, SyncError> {
     let bytes = URL_SAFE_NO_PAD
         .decode(value)
         .map_err(|_| SyncError::InvalidData("invalid path encoding".into()))?;
-    let text = String::from_utf8(bytes).map_err(|_| SyncError::InvalidData("non-UTF-8 path".into()))?;
+    let text =
+        String::from_utf8(bytes).map_err(|_| SyncError::InvalidData("non-UTF-8 path".into()))?;
     SyncPath::new(text).map_err(|e| SyncError::InvalidData(e.to_string()))
 }
 
@@ -604,7 +613,9 @@ fn get_plan<M, P>(
         .ok_or_else(|| SyncError::NotFound("plan not found".into()))?;
 
     if &record.device_id != device_id {
-        return Err(SyncError::Unauthorized("plan does not belong to this peer".into()));
+        return Err(SyncError::Unauthorized(
+            "plan does not belong to this peer".into(),
+        ));
     }
 
     Ok(record.clone())
@@ -624,7 +635,9 @@ fn take_plan<M, P>(
         .ok_or_else(|| SyncError::NotFound("plan not found".into()))?;
 
     if &record.device_id != device_id {
-        return Err(SyncError::Unauthorized("plan does not belong to this peer".into()));
+        return Err(SyncError::Unauthorized(
+            "plan does not belong to this peer".into(),
+        ));
     }
 
     Ok(record)

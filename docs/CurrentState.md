@@ -27,8 +27,8 @@ This document is a snapshot of what is **implemented** and what is **still pendi
 
 ### `ttsync-fs` (filesystem adapters)
 
-- Wire↔local mapping: `RootKind::{DataRoot, UserRoot}` + `resolve_to_local()`.
-- Manifest scanning: `scan_manifest(data_root, root_kind, profile)` produces `ManifestV2` using **wire paths** even when serving a `UserRoot`.
+- Wire↔local mapping: `LayoutMode` + `WorkspaceMounts` + `resolve_to_local()`.
+- Manifest scanning: `scan_manifest(mounts)` produces `ManifestV2` using the canonical **wire paths** and the v2 dataset allowlist.
 - `FsManifestStore` implements `ttsync-core::ports::ManifestStore`.
 - Atomic writes + mtime preservation: `writer::write_file_atomic(...)` and `writer::delete_file(...)`.
 - `JsonPeerStore` persists peers in `<state-dir>/peers.json` and implements `ttsync-core::ports::PeerStore`.
@@ -67,7 +67,7 @@ This document is a snapshot of what is **implemented** and what is **still pendi
 
 #### Architecture
 
-- `config.rs`: Configuration management with `config.toml` (data root, root kind, public URL, listen address) and `identity.json` (device UUID, Ed25519 key pair, device name). State directory resolved via `--state-dir` flag → `TT_SYNC_STATE_DIR` env → platform-local-data.
+- `config.rs`: Configuration management with `config.toml` (workspace path, layout mode, public URL, listen address) and `identity.json` (device UUID, Ed25519 key pair, device name). State directory resolved via `--state-dir` flag → `TT_SYNC_STATE_DIR` env → platform-local-data.
 - `output.rs`: Zero-dependency ANSI styling with `Style` struct that respects `--no-color` flag and `NO_COLOR` env var.
 - `main.rs`: Global flags (`--no-color`, `--quiet`, `--state-dir`), styled clap help, conditional tracing initialization (only for `serve` or when `RUST_LOG` is set), colored error display.
 
@@ -75,13 +75,12 @@ This document is a snapshot of what is **implemented** and what is **still pendi
 
 | Command | Status | Notes |
 |---------|--------|-------|
-| `tt-sync init` | ✅ | Creates state dir, config.toml, identity.json, TLS cert+key. Validates data root exists. Rejects re-init. |
-| `tt-sync serve` | ✅ | Loads config, starts TLS HTTPS server via `ttsync-http::spawn_server()`, prints server banner, Ctrl+C graceful shutdown. |
-| `tt-sync pair open` | ✅ | Generates one-time token + pair URI via `ttsync-core::pairing`. Supports `--json`, `--rw`, `--mirror`, `--expires`, `--profile`. |
+| `tt-sync init` | ✅ | Creates state dir, config.toml, identity.json, TLS cert+key. Validates workspace path exists. Prints derived mount points. Rejects re-init. |
+| `tt-sync serve` | ✅ | Loads config, derives mount points, starts TLS HTTPS server via `ttsync-http::spawn_server()`, prints server banner, Ctrl+C graceful shutdown. |
+| `tt-sync pair open` | ✅ | Generates one-time token + pair URI via `ttsync-core::pairing`. Supports `--json`, `--rw`, `--mirror`, `--expires`. |
 | `tt-sync peers list` | ✅ | Reads `JsonPeerStore`, displays formatted table (`comfy-table`). Supports `--json`. |
 | `tt-sync peers revoke` | ✅ | Matches by device ID, prefix, or name (case-insensitive). |
-| `tt-sync profile list` | ✅ | Shows all included directories/files for both `compatible-minimal` and `default` profiles, plus global exclusions. |
-| `tt-sync doctor` | ✅ | Validates state dir, config.toml, data root, identity, TLS cert, peers.json. Styled ✓/!/✗ indicators. |
+| `tt-sync doctor` | ✅ | Validates state dir, config.toml, mount derivation, identity, TLS cert, peers.json. Styled ✓/!/✗ indicators. |
 | `tt-sync cert show` | ✅ | Displays SPKI SHA-256 fingerprint, file paths, mode. |
 | `tt-sync cert rotate-leaf` | ✅ | Re-signs cert with existing key (via `rcgen`), confirms SPKI pin unchanged. |
 
@@ -109,4 +108,4 @@ From `TT-Sync/`:
 cargo test
 ```
 
-All unit tests pass as of this snapshot (8/8).
+All unit tests pass as of this snapshot (13/13).

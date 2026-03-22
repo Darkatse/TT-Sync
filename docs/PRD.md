@@ -36,14 +36,14 @@ LAN Sync's current architecture (plain HTTP, HMAC shared-secret auth, "notify pe
 
 ### 4.1 Initialization & Configuration
 
-- `tt-sync init` — interactive/non-interactive setup: choose data root, root kind, public base URL, generate cryptographic identity (Ed25519 + TLS), write `config.toml`.
+- `tt-sync init` — interactive/non-interactive setup: choose workspace path + layout mode, public base URL, generate cryptographic identity (Ed25519 + TLS), write `config.toml`.
 - Configuration stored in a **state directory** separate from the synced data tree.
   - Default: platform-appropriate app data dir (e.g., `~/.local/state/tt-sync`, `%AppData%/TT-Sync`).
   - Overridable via `--state-dir`.
 
 ### 4.2 Device Pairing
 
-- `tt-sync pair open` — generates a one-time pairing token with configurable expiry, scope profile, and permission set. Outputs a `tauritavern://` pair URI (and optionally a QR code).
+- `tt-sync pair open` — generates a one-time pairing token with configurable expiry and permission set. Outputs a `tauritavern://` pair URI (and optionally a QR code).
 - Pairing flow:
   1. Server generates one-time token + SPKI pin material.
   2. Client scans/enters pair URI and connects over TLS (pinned to server's SPKI).
@@ -63,14 +63,14 @@ LAN Sync's current architecture (plain HTTP, HMAC shared-secret auth, "notify pe
 
 #### Pull (Remote → Local)
 1. Client scans local manifest.
-2. `POST /v2/sync/pull-plan` with scope profile + sync mode + local manifest.
+2. `POST /v2/sync/pull-plan` with sync mode + local manifest.
 3. Server diffs against its own manifest, returns a plan (files to download, files to delete, total bytes).
 4. Client downloads files via `GET /v2/plans/{plan_id}/files/{path_b64}`.
 5. In mirror mode, client deletes local files not present on server.
 
 #### Push (Local → Remote)
 1. Client scans local manifest.
-2. `POST /v2/sync/push-plan` with scope profile + sync mode + local manifest.
+2. `POST /v2/sync/push-plan` with sync mode + local manifest.
 3. Server diffs against its own manifest, returns a plan (files to upload, files to delete, total bytes).
 4. Client uploads files via `PUT /v2/plans/{plan_id}/files/{path_b64}`.
 5. `POST /v2/plans/{plan_id}/commit` — server applies deletions only after all uploads succeed.
@@ -80,27 +80,32 @@ LAN Sync's current architecture (plain HTTP, HMAC shared-secret auth, "notify pe
 - **File access is plan-scoped** — the server only permits access to paths that appear in the active plan, providing a clear security boundary.
 - Diff uses `mtime + size` as the default fast path. BLAKE3 content hashing is available as an optional verification mode.
 
-### 4.5 Scope Profiles
+### 4.5 Dataset Scope (v2)
 
-Two built-in profiles:
+TT-Sync v2 ships with a **single curated dataset** (fixed allowlist). It is not “sync every file under disk”.
 
-| Profile | Description |
-|---------|-------------|
-| `compatible-minimal` | Exact equivalent of the current v1 LAN Sync whitelist. For backward compatibility. |
-| `default` (`tauritavern-user`) | Full TauriTavern user content: characters, chats, groups, worlds, backgrounds, themes, settings, extensions, TauriTavern-specific directories. |
+- Included roots (directories + individual files) are defined in `ttsync-core::scope`.
+- Explicit exclusion: `default-user/user/lan-sync` (sync-engine local state).
+- `default-user/secrets.json` is **included** and is expected to sync across devices (protected by TLS + pairing).
 
-**Default exclusions** (never synced in any profile):
-- `secrets.json`, log files, `_uploads`, sync state directory, cache/thumbnails.
-- `backups` — optional, not included by default.
+**Extension point** (post-MVP): user-defined include/exclude overlay rules on top of the default dataset.
 
-**Extension point** (post-MVP): user-defined include/exclude overlay rules on top of `default`.
+### 4.6 Layout Mode (filesystem mapping)
 
-### 4.6 CLI User Experience
+TT-Sync keeps the **wire namespace canonical** (TauriTavern-shaped paths like `default-user/...` and `extensions/third-party/...`), and makes the local mapping configurable via a layout mode:
+
+- `tauritavern` — TauriTavern `data/` layout (global extensions live under `data/extensions/third-party`).
+- `sillytavern` — SillyTavern repo layout (global extensions live under `public/scripts/extensions/third-party`).
+- `sillytavern-docker` — SillyTavern docker volume layout (global extensions live under `./extensions`).
+
+Users provide a single `workspace_path` (layout anchor). TT-Sync derives mount points (data root, default-user root, extensions root) deterministically from `(layout_mode, workspace_path)`.
+
+### 4.7 CLI User Experience
 
 - All commands support `--json`, `--quiet`, `--no-color` output modes.
-- `tt-sync serve` prints startup banner with: listen address, public base URL, root path, root kind, enabled profiles, TLS mode, state directory.
+- `tt-sync serve` prints startup banner with: listen address, public base URL, workspace path, layout mode, derived mount points, TLS mode, state directory.
 - Progress reporting during sync operations: phase, file count, byte count, current path.
-- `tt-sync doctor` — validates configuration, checks TLS cert, verifies data root accessibility.
+- `tt-sync doctor` — validates configuration, checks TLS cert, and validates workspace/mount derivation.
 - `tt-sync cert show` / `tt-sync cert rotate-leaf` — TLS certificate management.
 
 ## 5. Explicit Non-Goals (MVP)

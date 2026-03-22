@@ -82,7 +82,6 @@ pub struct PairCompleteRequest {
 pub struct PairCompleteResponse {
     pub server_device_id: DeviceId,
     pub server_device_name: String,
-    pub granted_profile: crate::sync::ScopeProfileId,
     pub granted_permissions: crate::peer::Permissions,
 }
 

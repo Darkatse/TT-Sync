@@ -4,8 +4,8 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use ed25519_dalek::{Signature, VerifyingKey};
 use ttsync_contract::canonical::CanonicalRequest;
 use ttsync_contract::peer::DeviceId;
@@ -108,7 +108,12 @@ impl SessionManager {
         Ok(record.device_id.clone())
     }
 
-    fn record_nonce(&self, device_id: &DeviceId, nonce: &str, now_ms: u64) -> Result<(), SyncError> {
+    fn record_nonce(
+        &self,
+        device_id: &DeviceId,
+        nonce: &str,
+        now_ms: u64,
+    ) -> Result<(), SyncError> {
         let key = format!("{}|{}", device_id.as_str(), nonce);
         let mut nonces = self.nonces.lock().expect("nonce mutex poisoned");
         nonces.retain(|_, expires_at| *expires_at > now_ms);

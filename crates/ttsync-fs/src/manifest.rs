@@ -1,37 +1,28 @@
-//! Manifest scanning: walks the data root per scope profile to produce ManifestV2.
+//! Manifest scanning: walks the workspace per dataset scope to produce ManifestV2.
 
-use std::path::{Component, Path, PathBuf};
+use std::path::{Component, Path};
 use std::time::UNIX_EPOCH;
 
 use ttsync_contract::manifest::{ManifestEntryV2, ManifestV2};
 use ttsync_contract::path::SyncPath;
-use ttsync_contract::sync::ScopeProfileId;
 use ttsync_core::error::SyncError;
 use ttsync_core::scope;
 
-use crate::path_mapping::{resolve_to_local, RootKind};
+use crate::layout::{WorkspaceMounts, resolve_to_local};
 
-/// Scan a data root directory and build a manifest for the given scope profile.
-pub async fn scan_manifest(
-    data_root: PathBuf,
-    root_kind: RootKind,
-    profile: ScopeProfileId,
-) -> Result<ManifestV2, SyncError> {
-    tokio::task::spawn_blocking(move || scan_manifest_sync(&data_root, root_kind, &profile))
+/// Scan the workspace and build a manifest for the v2 dataset.
+pub async fn scan_manifest(mounts: WorkspaceMounts) -> Result<ManifestV2, SyncError> {
+    tokio::task::spawn_blocking(move || scan_manifest_sync(&mounts))
         .await
         .map_err(|e| SyncError::Internal(e.to_string()))?
 }
 
-fn scan_manifest_sync(
-    data_root: &Path,
-    root_kind: RootKind,
-    profile: &ScopeProfileId,
-) -> Result<ManifestV2, SyncError> {
+fn scan_manifest_sync(mounts: &WorkspaceMounts) -> Result<ManifestV2, SyncError> {
     let mut entries = Vec::new();
 
-    for &wire_dir in scope::included_directories(profile) {
+    for &wire_dir in scope::included_directories() {
         let sync_dir = SyncPath::new(wire_dir).expect("scope dir must be a valid SyncPath");
-        let local_dir = resolve_to_local(data_root, root_kind, &sync_dir);
+        let local_dir = resolve_to_local(mounts, &sync_dir);
         if !local_dir.exists() {
             continue;
         }
@@ -44,13 +35,13 @@ fn scan_manifest_sync(
         scan_dir_recursive(&local_dir, wire_dir, &mut entries)?;
     }
 
-    for &wire_file in scope::included_files(profile) {
+    for &wire_file in scope::included_files() {
         if scope::is_excluded(wire_file) {
             continue;
         }
 
         let sync_file = SyncPath::new(wire_file).expect("scope file must be a valid SyncPath");
-        let local_file = resolve_to_local(data_root, root_kind, &sync_file);
+        let local_file = resolve_to_local(mounts, &sync_file);
         if !local_file.exists() || !local_file.is_file() {
             continue;
         }
@@ -88,7 +79,7 @@ fn scan_dir_recursive_inner(
         let entry_path = entry.path();
 
         if file_type.is_symlink() {
-            continue; // Skip symlinks silently.
+            continue;
         }
 
         let relative = normalize_relative_path(
@@ -122,8 +113,7 @@ fn make_entry(relative_path: &str, file_path: &Path) -> Result<ManifestEntryV2, 
         .map_err(|e| SyncError::Internal(e.to_string()))?
         .as_millis() as u64;
 
-    let path =
-        SyncPath::new(relative_path).map_err(|e| SyncError::InvalidData(e.to_string()))?;
+    let path = SyncPath::new(relative_path).map_err(|e| SyncError::InvalidData(e.to_string()))?;
 
     Ok(ManifestEntryV2 {
         path,

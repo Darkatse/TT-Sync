@@ -118,12 +118,7 @@ mod tests {
             ],
         };
 
-        let plan = compute_plan(
-            PlanId("test".into()),
-            &source,
-            &target,
-            SyncMode::Mirror,
-        );
+        let plan = compute_plan(PlanId("test".into()), &source, &target, SyncMode::Mirror);
         assert_eq!(plan.files_total, 0);
         assert_eq!(plan.delete.len(), 1);
         assert_eq!(plan.delete[0].as_str(), "default-user/old.json");

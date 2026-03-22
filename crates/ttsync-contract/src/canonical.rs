@@ -58,7 +58,8 @@ impl CanonicalRequest {
             return Err(CanonicalRequestError::InvalidPrefix);
         }
 
-        let device_id = DeviceId::new(parts[1].to_owned()).map_err(CanonicalRequestError::DeviceId)?;
+        let device_id =
+            DeviceId::new(parts[1].to_owned()).map_err(CanonicalRequestError::DeviceId)?;
         let timestamp_ms = parts[2]
             .parse::<u64>()
             .map_err(|_| CanonicalRequestError::InvalidTimestamp)?;
@@ -120,7 +121,7 @@ fn validate_field(field: &'static str, value: &str) -> Result<(), CanonicalReque
 
 #[cfg(test)]
 mod tests {
-    use super::{CanonicalRequest, CANONICAL_REQUEST_PREFIX};
+    use super::{CANONICAL_REQUEST_PREFIX, CanonicalRequest};
     use crate::peer::DeviceId;
 
     #[test]

@@ -4,13 +4,16 @@ use std::path::{Path, PathBuf};
 
 use ed25519_dalek::SigningKey;
 use serde::{Deserialize, Serialize};
+use ttsync_fs::layout::LayoutMode;
 
 /// Persistent configuration written to `config.toml`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
-    pub data_root: PathBuf,
+    /// User-provided folder path used as the layout anchor.
+    pub workspace_path: PathBuf,
     #[serde(default)]
-    pub root_kind: RootKindConfig,
+    pub layout: LayoutMode,
+    /// Public base URL for pair URIs (e.g., https://my-vps:8443).
     pub public_url: String,
     #[serde(default = "default_listen")]
     pub listen: String,
@@ -18,23 +21,6 @@ pub struct Config {
 
 fn default_listen() -> String {
     "0.0.0.0:8443".into()
-}
-
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum RootKindConfig {
-    #[default]
-    DataRoot,
-    UserRoot,
-}
-
-impl From<RootKindConfig> for ttsync_fs::path_mapping::RootKind {
-    fn from(value: RootKindConfig) -> Self {
-        match value {
-            RootKindConfig::DataRoot => Self::DataRoot,
-            RootKindConfig::UserRoot => Self::UserRoot,
-        }
-    }
 }
 
 /// Device identity persisted in `identity.json`.
@@ -71,17 +57,13 @@ pub fn load_config(state_dir: &Path) -> Result<Config, CliError> {
     let path = config_path(state_dir);
     let text = std::fs::read_to_string(&path)
         .map_err(|e| CliError::Config(format!("read {}: {}", path.display(), e)))?;
-    toml::from_str(&text)
-        .map_err(|e| CliError::Config(format!("parse {}: {}", path.display(), e)))
+    toml::from_str(&text).map_err(|e| CliError::Config(format!("parse {}: {}", path.display(), e)))
 }
 
 pub fn save_config(state_dir: &Path, config: &Config) -> Result<(), CliError> {
-    std::fs::create_dir_all(state_dir)
-        .map_err(|e| CliError::Config(e.to_string()))?;
-    let text = toml::to_string_pretty(config)
-        .map_err(|e| CliError::Config(e.to_string()))?;
-    std::fs::write(config_path(state_dir), text)
-        .map_err(|e| CliError::Config(e.to_string()))
+    std::fs::create_dir_all(state_dir).map_err(|e| CliError::Config(e.to_string()))?;
+    let text = toml::to_string_pretty(config).map_err(|e| CliError::Config(e.to_string()))?;
+    std::fs::write(config_path(state_dir), text).map_err(|e| CliError::Config(e.to_string()))
 }
 
 pub fn load_identity(state_dir: &Path) -> Result<Identity, CliError> {
@@ -93,12 +75,10 @@ pub fn load_identity(state_dir: &Path) -> Result<Identity, CliError> {
 }
 
 pub fn save_identity(state_dir: &Path, identity: &Identity) -> Result<(), CliError> {
-    std::fs::create_dir_all(state_dir)
-        .map_err(|e| CliError::Config(e.to_string()))?;
-    let text = serde_json::to_string_pretty(identity)
-        .map_err(|e| CliError::Config(e.to_string()))?;
-    std::fs::write(identity_path(state_dir), text)
-        .map_err(|e| CliError::Config(e.to_string()))
+    std::fs::create_dir_all(state_dir).map_err(|e| CliError::Config(e.to_string()))?;
+    let text =
+        serde_json::to_string_pretty(identity).map_err(|e| CliError::Config(e.to_string()))?;
+    std::fs::write(identity_path(state_dir), text).map_err(|e| CliError::Config(e.to_string()))
 }
 
 pub fn load_or_create_identity(state_dir: &Path) -> Result<Identity, CliError> {
@@ -107,8 +87,7 @@ pub fn load_or_create_identity(state_dir: &Path) -> Result<Identity, CliError> {
     }
     let secret: [u8; 32] = rand::random();
     let signing = SigningKey::from_bytes(&secret);
-    let private_key = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .encode(signing.to_bytes());
+    let private_key = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(signing.to_bytes());
     let identity = Identity {
         device_id: uuid::Uuid::new_v4().to_string(),
         device_name: "TT-Sync".into(),
@@ -124,7 +103,8 @@ pub fn _signing_key(identity: &Identity) -> Result<SigningKey, CliError> {
     let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(&identity.private_key)
         .map_err(|e| CliError::Config(format!("decode private key: {}", e)))?;
-    let bytes: [u8; 32] = bytes.try_into()
+    let bytes: [u8; 32] = bytes
+        .try_into()
         .map_err(|_| CliError::Config("invalid private key length".into()))?;
     Ok(SigningKey::from_bytes(&bytes))
 }

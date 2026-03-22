@@ -6,8 +6,8 @@
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use rcgen::CertifiedKey;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use sha2::{Digest, Sha256};
@@ -53,11 +53,9 @@ impl SelfManagedTls {
             });
         }
 
-        let CertifiedKey { cert, key_pair } = rcgen::generate_simple_self_signed([
-            "tt-sync".to_owned(),
-            "localhost".to_owned(),
-        ])
-        .map_err(|e| SyncError::Internal(e.to_string()))?;
+        let CertifiedKey { cert, key_pair } =
+            rcgen::generate_simple_self_signed(["tt-sync".to_owned(), "localhost".to_owned()])
+                .map_err(|e| SyncError::Internal(e.to_string()))?;
 
         let key_pem = key_pair.serialize_pem();
         let cert_pem = cert.pem();
@@ -87,10 +85,11 @@ impl TlsProvider for SelfManagedTls {
     }
 
     fn server_config(&self) -> Result<rustls::ServerConfig, SyncError> {
-        let mut config = rustls::ServerConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
-            .with_no_client_auth()
-            .with_single_cert(self.cert_chain.clone(), self.private_key.clone_key())
-            .map_err(|e| SyncError::Internal(e.to_string()))?;
+        let mut config =
+            rustls::ServerConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
+                .with_no_client_auth()
+                .with_single_cert(self.cert_chain.clone(), self.private_key.clone_key())
+                .map_err(|e| SyncError::Internal(e.to_string()))?;
 
         config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
         Ok(config)
@@ -104,7 +103,9 @@ fn parse_cert_chain_pem(pem: &[u8]) -> Result<Vec<CertificateDer<'static>>, Sync
         .map_err(|e| SyncError::InvalidData(e.to_string()))?;
 
     if certs.is_empty() {
-        return Err(SyncError::InvalidData("no certificates found in cert.pem".into()));
+        return Err(SyncError::InvalidData(
+            "no certificates found in cert.pem".into(),
+        ));
     }
 
     Ok(certs)

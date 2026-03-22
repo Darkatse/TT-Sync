@@ -13,7 +13,7 @@ pub struct ManifestEntryV2 {
     pub content_hash: Option<String>,
 }
 
-/// A complete file manifest for a data root under a given scope profile.
+/// A complete file manifest for the TT-Sync v2 dataset.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ManifestV2 {
     pub entries: Vec<ManifestEntryV2>,

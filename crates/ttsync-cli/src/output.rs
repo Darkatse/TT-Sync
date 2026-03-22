@@ -13,43 +13,83 @@ impl Style {
     }
 
     pub fn bold<'a>(&self, text: &'a str) -> Styled<'a> {
-        Styled { text, code: "\x1b[1m", color: self.color }
+        Styled {
+            text,
+            code: "\x1b[1m",
+            color: self.color,
+        }
     }
 
     pub fn dim<'a>(&self, text: &'a str) -> Styled<'a> {
-        Styled { text, code: "\x1b[2m", color: self.color }
+        Styled {
+            text,
+            code: "\x1b[2m",
+            color: self.color,
+        }
     }
 
     pub fn green<'a>(&self, text: &'a str) -> Styled<'a> {
-        Styled { text, code: "\x1b[32m", color: self.color }
+        Styled {
+            text,
+            code: "\x1b[32m",
+            color: self.color,
+        }
     }
 
     pub fn cyan<'a>(&self, text: &'a str) -> Styled<'a> {
-        Styled { text, code: "\x1b[36m", color: self.color }
+        Styled {
+            text,
+            code: "\x1b[36m",
+            color: self.color,
+        }
     }
 
     pub fn yellow<'a>(&self, text: &'a str) -> Styled<'a> {
-        Styled { text, code: "\x1b[33m", color: self.color }
+        Styled {
+            text,
+            code: "\x1b[33m",
+            color: self.color,
+        }
     }
 
     pub fn red<'a>(&self, text: &'a str) -> Styled<'a> {
-        Styled { text, code: "\x1b[31m", color: self.color }
+        Styled {
+            text,
+            code: "\x1b[31m",
+            color: self.color,
+        }
     }
 
     pub fn bold_green<'a>(&self, text: &'a str) -> Styled<'a> {
-        Styled { text, code: "\x1b[1;32m", color: self.color }
+        Styled {
+            text,
+            code: "\x1b[1;32m",
+            color: self.color,
+        }
     }
 
     pub fn bold_cyan<'a>(&self, text: &'a str) -> Styled<'a> {
-        Styled { text, code: "\x1b[1;36m", color: self.color }
+        Styled {
+            text,
+            code: "\x1b[1;36m",
+            color: self.color,
+        }
     }
 
     pub fn bold_yellow<'a>(&self, text: &'a str) -> Styled<'a> {
-        Styled { text, code: "\x1b[1;33m", color: self.color }
+        Styled {
+            text,
+            code: "\x1b[1;33m",
+            color: self.color,
+        }
     }
 
     pub fn bold_red<'a>(&self, text: &'a str) -> Styled<'a> {
-        Styled { text, code: "\x1b[1;31m", color: self.color }
+        Styled {
+            text,
+            code: "\x1b[1;31m",
+            color: self.color,
+        }
     }
 }
 

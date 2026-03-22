@@ -50,9 +50,7 @@ async fn main() {
     let use_color = !cli.no_color && supports_color();
 
     // Only enable tracing for `serve` (long-running) or when RUST_LOG is set.
-    if matches!(cli.command, commands::Command::Serve { .. })
-        || std::env::var("RUST_LOG").is_ok()
-    {
+    if matches!(cli.command, commands::Command::Serve) || std::env::var("RUST_LOG").is_ok() {
         tracing_subscriber::fmt()
             .with_env_filter(
                 tracing_subscriber::EnvFilter::try_from_default_env()

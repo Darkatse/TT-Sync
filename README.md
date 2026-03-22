@@ -8,7 +8,7 @@
 
 <p align="center">
   <strong>TauriTavern 远程同步服务器</strong><br/>
-  <em>我要给我的角色一个更大的家。</em>
+  <em>我要给我的角色们一个更大的家！</em>
 </p>
 
 <p align="center">
@@ -59,7 +59,8 @@ cp target/release/tt-sync ~/.local/bin/
 
 ```bash
 tt-sync init \
-  --data-root /path/to/sillytavern/data/ \
+  --path /path/to/tauritavern/data/ \
+  --layout tauritavern \
   --public-url https://my-vps.example.com:8443
 ```
 
@@ -123,7 +124,6 @@ tt-sync peers revoke "My Phone"
 | `pair open` | 生成一次性配对令牌 + URI |
 | `peers list` | 以表格显示所有已配对设备 |
 | `peers revoke` | 移除已配对设备 |
-| `profile list` | 显示每个作用域配置文件包含的目录 |
 | `doctor` | 验证配置、TLS、数据目录、身份 |
 | `cert show` | 显示 SPKI SHA-256 指纹 |
 | `cert rotate-leaf` | 重签 TLS 证书（密钥不变，SPKI pin 不变） |
@@ -138,16 +138,17 @@ tt-sync peers revoke "My Phone"
 
 ---
 
-## 作用域配置（Scope Profile）
+## 文件夹布局（Layout Mode）
 
-TT-Sync 内置两个同步作用域配置：
+TT-Sync v2 默认使用**全量同步数据集**（固定 allowlist，不再提供 `compatible-minimal`）。
 
-| 配置名 | 描述 |
-|--------|------|
-| `default` | 完整的 TauriTavern 用户内容 — 角色卡、聊天、设置、主题、扩展等 |
-| `compatible-minimal` | 与 v1 LAN Sync 白名单完全一致，适用于 SillyTavern 兼容场景 |
+你需要选择的是 **layout mode**：同一套 canonical wire path，如何落到本地文件夹结构上（重点是全局扩展目录的位置）。
 
-使用 `tt-sync profile list` 查看每个配置包含的具体目录和文件。
+| `--layout` | 目标文件夹结构 | 全局扩展映射 |
+|-----------|----------------|--------------|
+| `tauritavern` | TauriTavern `data/` | `extensions/third-party` → `data/extensions/third-party` |
+| `sillytavern` | SillyTavern 仓库布局 | `extensions/third-party` → `public/scripts/extensions/third-party` |
+| `sillytavern-docker` | SillyTavern docker 卷布局 | `extensions/third-party` → `./extensions` |
 
 ---
 
@@ -165,7 +166,7 @@ TT-Sync 内置两个同步作用域配置：
 ├──────────────────────────────────────────────────────────┤
 │  第三层：授权控制                                         │
 │  每设备 ACL：read / write / mirror-delete                │
-│  作用域配置限制可见目录范围                               │
+│  固定 allowlist 限制可见路径范围                          │
 └──────────────────────────────────────────────────────────┘
 ```
 

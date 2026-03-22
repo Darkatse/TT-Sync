@@ -90,7 +90,6 @@ pub struct PeerGrant {
     pub device_name: String,
     /// Ed25519 public key bytes.
     pub public_key: Vec<u8>,
-    pub profile: crate::sync::ScopeProfileId,
     pub permissions: Permissions,
     pub paired_at_ms: u64,
     pub last_sync_ms: Option<u64>,

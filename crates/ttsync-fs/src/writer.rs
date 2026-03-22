@@ -6,18 +6,17 @@ use tokio::io::{AsyncRead, AsyncWriteExt};
 use ttsync_contract::path::SyncPath;
 use ttsync_core::error::SyncError;
 
-use crate::path_mapping::{resolve_to_local, RootKind};
+use crate::layout::{WorkspaceMounts, resolve_to_local};
 
 /// Write data to a file atomically: tmp file → flush → rename.
 /// Preserves mtime after write.
 pub async fn write_file_atomic(
-    data_root: &Path,
-    root_kind: RootKind,
+    mounts: &WorkspaceMounts,
     sync_path: &SyncPath,
     data: &mut (dyn AsyncRead + Send + Unpin),
     modified_ms: u64,
 ) -> Result<(), SyncError> {
-    let full_path = resolve_to_local(data_root, root_kind, sync_path);
+    let full_path = resolve_to_local(mounts, sync_path);
 
     if let Some(parent) = full_path.parent() {
         tokio::fs::create_dir_all(parent)
@@ -50,12 +49,8 @@ pub async fn write_file_atomic(
 }
 
 /// Delete a file at the given sync path.
-pub async fn delete_file(
-    data_root: &Path,
-    root_kind: RootKind,
-    sync_path: &SyncPath,
-) -> Result<(), SyncError> {
-    let full_path = resolve_to_local(data_root, root_kind, sync_path);
+pub async fn delete_file(mounts: &WorkspaceMounts, sync_path: &SyncPath) -> Result<(), SyncError> {
+    let full_path = resolve_to_local(mounts, sync_path);
     tokio::fs::remove_file(&full_path)
         .await
         .map_err(|e| SyncError::Io(e.to_string()))
@@ -76,7 +71,6 @@ async fn rename_with_retry(from: &Path, to: &Path) -> Result<(), SyncError> {
     match tokio::fs::rename(from, to).await {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-            // Windows: remove target first, then retry rename.
             let _ = tokio::fs::remove_file(to).await;
             tokio::fs::rename(from, to)
                 .await

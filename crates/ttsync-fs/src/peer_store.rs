@@ -70,8 +70,9 @@ impl PeerStore for JsonPeerStore {
         }
     }
 
-    fn list_peers(&self) -> impl std::future::Future<Output = Result<Vec<PeerGrant>, SyncError>> + Send
-    {
+    fn list_peers(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Vec<PeerGrant>, SyncError>> + Send {
         async move {
             let _guard = self.lock.lock().await;
             load_peers(&self.path).await
@@ -86,7 +87,8 @@ async fn load_peers(path: &Path) -> Result<Vec<PeerGrant>, SyncError> {
         Err(e) => return Err(SyncError::Io(e.to_string())),
     };
 
-    serde_json::from_slice::<Vec<PeerGrant>>(&bytes).map_err(|e| SyncError::InvalidData(e.to_string()))
+    serde_json::from_slice::<Vec<PeerGrant>>(&bytes)
+        .map_err(|e| SyncError::InvalidData(e.to_string()))
 }
 
 async fn save_peers(path: &Path, peers: &[PeerGrant]) -> Result<(), SyncError> {

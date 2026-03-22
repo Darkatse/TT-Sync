@@ -1,7 +1,6 @@
 use ttsync_contract::manifest::ManifestV2;
 use ttsync_contract::path::SyncPath;
 use ttsync_contract::peer::{DeviceId, PeerGrant};
-use ttsync_contract::sync::ScopeProfileId;
 
 use crate::error::SyncError;
 
@@ -27,18 +26,16 @@ pub trait SyncEventSink: Send + Sync {
 
 /// Reads and writes the file manifest for a data root.
 pub trait ManifestStore: Send + Sync {
-    /// Scan the data root and produce a manifest for the given scope profile.
-    fn scan(
-        &self,
-        profile: &ScopeProfileId,
-    ) -> impl std::future::Future<Output = Result<ManifestV2, SyncError>> + Send;
+    /// Scan the data root and produce a manifest for the v2 dataset.
+    fn scan(&self) -> impl std::future::Future<Output = Result<ManifestV2, SyncError>> + Send;
 
     /// Open a file for reading.
     fn read_file(
         &self,
         path: &SyncPath,
-    ) -> impl std::future::Future<Output = Result<Box<dyn tokio::io::AsyncRead + Send + Unpin>, SyncError>>
-           + Send;
+    ) -> impl std::future::Future<
+        Output = Result<Box<dyn tokio::io::AsyncRead + Send + Unpin>, SyncError>,
+    > + Send;
 
     /// Write a file atomically (tmp + rename), preserving mtime.
     fn write_file(

@@ -58,13 +58,12 @@ This crate is the shared language between TT-Sync and TauriTavern. It must be us
 |------|---------|
 | `SyncPath` | Newtype over `String`. Validated at construction: UTF-8, forward-slash separated, no `..`, no leading `/`, no backslash. Once constructed, always valid. |
 | `DeviceId` | Newtype `String`. UUID format. |
-| `ScopeProfileId` | Enum: `CompatibleMinimal`, `Default`. Exhaustive — forces match-arm updates when profiles are added. |
 | `SyncMode` | Enum: `Incremental`, `Mirror`. |
 | `ManifestEntryV2` | `{ path: SyncPath, size_bytes: u64, modified_ms: u64, content_hash: Option<String> }` |
 | `ManifestV2` | `{ entries: Vec<ManifestEntryV2> }` |
 | `PlanId` | Newtype `String`. Server-generated, opaque to clients. |
 | `SessionToken` | Newtype `String`. Short-lived bearer token. |
-| `PeerGrant` | `{ device_id: DeviceId, device_name: String, public_key: Vec<u8>, profile: ScopeProfileId, permissions: Permissions, paired_at_ms: u64 }` |
+| `PeerGrant` | `{ device_id: DeviceId, device_name: String, public_key: Vec<u8>, permissions: Permissions, paired_at_ms: u64, last_sync_ms: Option<u64> }` |
 | `Permissions` | `{ read: bool, write: bool, mirror_delete: bool }` |
 | `SyncPhase` | Enum: `Scanning`, `Diffing`, `Downloading`, `Uploading`, `Deleting`. |
 | `PairUri` | Structured pair URI builder/parser: `tauritavern://tt-sync/pair?v=2&url=...&token=...&exp=...&spki=...` |
@@ -93,9 +92,9 @@ pub trait SyncEventSink: Send + Sync {
     fn on_error(&self, event: SyncErrorEvent);
 }
 
-/// Reads and writes the file manifest for a data root.
+/// Reads and writes the file manifest for the v2 dataset.
 pub trait ManifestStore: Send + Sync {
-    async fn scan(&self, profile: &ScopeProfileId) -> Result<ManifestV2, SyncError>;
+    async fn scan(&self) -> Result<ManifestV2, SyncError>;
     async fn read_file(&self, path: &SyncPath) -> Result<Box<dyn AsyncRead + Send>, SyncError>;
     async fn write_file(&self, path: &SyncPath, data: &mut (dyn AsyncRead + Send + Unpin), modified_ms: u64) -> Result<(), SyncError>;
     async fn delete_file(&self, path: &SyncPath) -> Result<(), SyncError>;
@@ -119,7 +118,7 @@ pub trait PeerStore: Send + Sync {
 | `plan` | Compute pull-plan and push-plan diffs given source and target manifests. |
 | `pull` | Orchestrate pull: request plan → download files → optional mirror delete → emit events. |
 | `push` | Orchestrate push: request plan → upload files → commit → emit events. |
-| `scope` | Profile definitions: which paths are included/excluded for each `ScopeProfileId`. |
+| `scope` | Dataset allowlist: which wire paths are included/excluded in TT-Sync v2. |
 
 #### Error Type
 
@@ -141,12 +140,12 @@ Intentionally simple. Maps cleanly to HTTP status codes at the adapter boundary.
 
 | Component | Responsibility |
 |-----------|---------------|
-| `FsManifestStore` | Walks data root directories per scope profile. Produces `ManifestV2`. |
-| Profile path tables | Static definitions of included directories/files and excluded paths per `ScopeProfileId`. |
+| `FsManifestStore` | Walks the workspace per dataset scope. Produces `ManifestV2`. |
+| Dataset path tables | Static definitions of included directories/files and excluded paths for the v2 dataset. |
 | Atomic write | Write to `{name}.{ext}.ttsync.tmp` → `rename` to final path. Same pattern as current LAN Sync. |
 | mtime preservation | Uses `filetime` to set modification time after write. |
 | Path mapping | Translates `SyncPath` (wire format, always `/`-separated) to platform-native `PathBuf`. |
-| Root kind handling | Supports `data-root` (ST-compatible) and `user-root` layouts. Path prefix mapping stays inside this adapter — never leaks to wire protocol. |
+| Layout mapping | Maps canonical wire paths to derived mount points (`LayoutMode` + `WorkspaceMounts`). Mapping stays inside this adapter — never leaks to wire protocol. |
 
 ### 2.4 `ttsync-http` (Infrastructure — HTTP Adapter)
 
@@ -196,8 +195,7 @@ Shared middleware:
 | `pair open` | Generates token via core → prints pair URI / QR / permissions. |
 | `peers list` | Reads peer store → formats table. |
 | `peers revoke` | Removes peer via core. |
-| `profile list` | Lists built-in profiles with included/excluded paths. |
-| `doctor` | Validates config, TLS cert, data root access. |
+| `doctor` | Validates config, TLS cert, and workspace/mount derivation. |
 | `cert show` | Displays SPKI fingerprint, cert expiry, key info. |
 | `cert rotate-leaf` | Re-signs cert with same key (preserves SPKI pin). |
 
@@ -219,7 +217,7 @@ graph LR
 
     subgraph "Operation Authorization"
         SESS["Session Token<br/>(short-lived)"]
-        ACL["Peer Grant<br/>(profile + permissions)"]
+        ACL["Peer Grant<br/>(permissions)"]
         PLAN["Plan Scope<br/>(path whitelist)"]
     end
 
@@ -266,7 +264,7 @@ sequenceDiagram
     S-->>C: 200 { session_token }
 
     C->>C: Scan local manifest
-    C->>S: POST /v2/sync/pull-plan { profile, mode, manifest }
+    C->>S: POST /v2/sync/pull-plan { mode, target_manifest }
     S->>S: Scan server manifest, compute diff
     S-->>C: 200 { plan_id, download[], delete[], bytes_total }
 
@@ -292,7 +290,7 @@ sequenceDiagram
     S-->>C: 200 { session_token }
 
     C->>C: Scan local manifest
-    C->>S: POST /v2/sync/push-plan { profile, mode, manifest }
+    C->>S: POST /v2/sync/push-plan { mode, source_manifest }
     S->>S: Scan server manifest, compute diff
     S-->>C: 200 { plan_id, upload[], delete[], bytes_total }
 
@@ -330,7 +328,7 @@ All paths on the wire use data-root-relative notation with forward slashes:
 - `extensions/third-party/my-ext/index.js`
 - `_tauritavern/extension-sources/local/ext.json`
 
-Layout adaptation (e.g., mapping `user-root` to `default-user/...`) is an `ttsync-fs` concern, never exposed on the wire.
+Layout adaptation (layout mode + derived mount points) is a `ttsync-fs` concern, never exposed on the wire.
 
 ## 6. Extension Points (Post-MVP)
 
