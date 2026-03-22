@@ -1,0 +1,65 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/ttsync-contract",
+    "crates/ttsync-core",
+    "crates/ttsync-fs",
+    "crates/ttsync-http",
+    "crates/ttsync-cli",
+]
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/Darkatse/TT-Sync"
+
+[workspace.dependencies]
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# HTTP
+axum = "0.8"
+axum-server = { version = "0.7", features = ["tls-rustls"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-webpki-roots-no-provider", "json", "stream"] }
+
+# TLS & crypto
+rustls = "0.23"
+rcgen = "0.13"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+sha2 = "0.10"
+hmac = "0.12"
+rand = "0.9"
+base64 = "0.22"
+
+# File system
+filetime = "0.2"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+indicatif = "0.17"
+comfy-table = "7"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Error handling
+thiserror = "2"
+
+# Utilities
+uuid = { version = "1", features = ["v4"] }
+url = "2"
+
+# Optional
+blake3 = "1"
+
+# Internal crates
+ttsync-contract = { path = "crates/ttsync-contract" }
+ttsync-core = { path = "crates/ttsync-core" }
+ttsync-fs = { path = "crates/ttsync-fs" }
+ttsync-http = { path = "crates/ttsync-http" }

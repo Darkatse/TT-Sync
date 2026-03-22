@@ -1,0 +1,220 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  BINARY_NAME: tt-sync
+
+jobs:
+  # ─────────────────────────────────────────────────────────────
+  # Linux x86_64 (native)
+  # ─────────────────────────────────────────────────────────────
+  build-linux-x64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Run tests
+        run: cargo test
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp target/release/${{ env.BINARY_NAME }} dist/${{ env.BINARY_NAME }}-linux-x64
+          chmod +x dist/${{ env.BINARY_NAME }}-linux-x64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ env.BINARY_NAME }}-linux-x64
+          path: dist/${{ env.BINARY_NAME }}-linux-x64
+
+  # ─────────────────────────────────────────────────────────────
+  # Linux ARM64 (native - GitHub hosted ARM runner)
+  # ─────────────────────────────────────────────────────────────
+  build-linux-arm64:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp target/release/${{ env.BINARY_NAME }} dist/${{ env.BINARY_NAME }}-linux-arm64
+          chmod +x dist/${{ env.BINARY_NAME }}-linux-arm64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ env.BINARY_NAME }}-linux-arm64
+          path: dist/${{ env.BINARY_NAME }}-linux-arm64
+
+  # ─────────────────────────────────────────────────────────────
+  # Windows x86_64 (native)
+  # ─────────────────────────────────────────────────────────────
+  build-windows-x64:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Package
+        run: |
+          mkdir dist
+          copy target\release\${{ env.BINARY_NAME }}.exe dist\${{ env.BINARY_NAME }}-windows-x64.exe
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ env.BINARY_NAME }}-windows-x64
+          path: dist/${{ env.BINARY_NAME }}-windows-x64.exe
+
+  # ─────────────────────────────────────────────────────────────
+  # macOS x86_64 (Intel)
+  # ─────────────────────────────────────────────────────────────
+  build-macos-x64:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp target/release/${{ env.BINARY_NAME }} dist/${{ env.BINARY_NAME }}-macos-x64
+          chmod +x dist/${{ env.BINARY_NAME }}-macos-x64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ env.BINARY_NAME }}-macos-x64
+          path: dist/${{ env.BINARY_NAME }}-macos-x64
+
+  # ─────────────────────────────────────────────────────────────
+  # macOS ARM64 (Apple Silicon)
+  # ─────────────────────────────────────────────────────────────
+  build-macos-arm64:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp target/release/${{ env.BINARY_NAME }} dist/${{ env.BINARY_NAME }}-macos-arm64
+          chmod +x dist/${{ env.BINARY_NAME }}-macos-arm64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ env.BINARY_NAME }}-macos-arm64
+          path: dist/${{ env.BINARY_NAME }}-macos-arm64
+
+  # ─────────────────────────────────────────────────────────────
+  # Create/Update Pre-release
+  # ─────────────────────────────────────────────────────────────
+  release:
+    needs:
+      - build-linux-x64
+      - build-linux-arm64
+      - build-windows-x64
+      - build-macos-x64
+      - build-macos-arm64
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release files
+        run: |
+          mkdir -p release
+          find artifacts -type f -exec cp {} release/ \;
+          ls -la release/
+
+      - name: Get version from Cargo.toml
+        id: version
+        run: |
+          VERSION=$(grep '^version' crates/ttsync-cli/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+
+      - name: Get short SHA
+        id: sha
+        run: echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Create or update pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly
+          name: "Nightly Build v${{ steps.version.outputs.version }} (${{ steps.sha.outputs.sha }})"
+          body: |
+            ## Nightly Build
+
+            **Version:** ${{ steps.version.outputs.version }}
+            **Commit:** ${{ github.sha }}
+            **Built:** ${{ github.event.head_commit.timestamp }}
+
+            ### Downloads
+
+            | Platform | Architecture | File |
+            |----------|--------------|------|
+            | Linux | x86_64 | `tt-sync-linux-x64` |
+            | Linux | ARM64 | `tt-sync-linux-arm64` |
+            | Windows | x86_64 | `tt-sync-windows-x64.exe` |
+            | macOS | x86_64 (Intel) | `tt-sync-macos-x64` |
+            | macOS | ARM64 (Apple Silicon) | `tt-sync-macos-arm64` |
+
+            ### Usage
+
+            ```bash
+            chmod +x tt-sync-linux-x64
+            ./tt-sync-linux-x64 init --data-root ./data --public-url https://your-server:8443
+            ./tt-sync-linux-x64 serve
+            ```
+
+            ### Note
+            This is an automated pre-release build from the `main` branch.
+            For stable releases, please check the tagged releases.
+          prerelease: true
+          files: release/*
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
