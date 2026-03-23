@@ -30,11 +30,12 @@ use ttsync_contract::session::{
 };
 use ttsync_contract::sync::SyncMode;
 use ttsync_core::error::SyncError;
-use ttsync_core::pairing::{PairingSession, complete_pairing};
+use ttsync_core::pairing::complete_pairing;
 use ttsync_core::plan::compute_plan;
 use ttsync_core::ports::{ManifestStore, PeerStore};
 use ttsync_core::session::SessionManager;
 
+use crate::pairing_store::PairingTokenStore;
 use crate::tls::TlsProvider;
 
 /// Shared state accessible by all route handlers.
@@ -44,7 +45,7 @@ pub struct ServerState<M, P> {
     pub manifest_store: Arc<M>,
     pub peer_store: Arc<P>,
     pub session_manager: Arc<SessionManager>,
-    pairing: std::sync::Mutex<HashMap<String, PairingSession>>,
+    pub pairing_store: PairingTokenStore,
     plans: std::sync::Mutex<HashMap<String, PlanRecord>>,
 }
 
@@ -55,6 +56,7 @@ impl<M, P> ServerState<M, P> {
         manifest_store: Arc<M>,
         peer_store: Arc<P>,
         session_manager: Arc<SessionManager>,
+        pairing_store: PairingTokenStore,
     ) -> Self {
         Self {
             server_device_id,
@@ -62,16 +64,9 @@ impl<M, P> ServerState<M, P> {
             manifest_store,
             peer_store,
             session_manager,
-            pairing: std::sync::Mutex::new(HashMap::new()),
+            pairing_store,
             plans: std::sync::Mutex::new(HashMap::new()),
         }
-    }
-
-    pub fn insert_pairing_session(&self, session: PairingSession) {
-        let now_ms = now_ms().expect("system time must be valid");
-        let mut map = self.pairing.lock().expect("pairing mutex poisoned");
-        map.retain(|_, s| s.expires_at_ms > now_ms);
-        map.insert(session.token.clone(), session);
     }
 }
 
@@ -208,13 +203,7 @@ where
     P: PeerStore + 'static,
 {
     let now_ms = now_ms()?;
-    let session = {
-        let mut sessions = state.pairing.lock().expect("pairing mutex poisoned");
-        sessions.retain(|_, s| s.expires_at_ms > now_ms);
-        sessions
-            .remove(&query.token)
-            .ok_or_else(|| SyncError::Unauthorized("invalid pair token".into()))?
-    };
+    let session = state.pairing_store.take(&query.token, now_ms)?;
 
     let (grant, response) = complete_pairing(
         &session,

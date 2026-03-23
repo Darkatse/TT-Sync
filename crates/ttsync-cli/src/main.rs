@@ -1,6 +1,9 @@
 mod commands;
 mod config;
 mod output;
+mod server_runtime;
+mod systemd;
+mod tui;
 
 use std::path::PathBuf;
 
@@ -25,7 +28,7 @@ struct Cli {
     state_dir: Option<PathBuf>,
 
     #[command(subcommand)]
-    command: commands::Command,
+    command: Option<commands::Command>,
 }
 
 fn clap_styles() -> clap::builder::Styles {
@@ -40,6 +43,7 @@ pub struct Context {
     pub style: Style,
     pub quiet: bool,
     pub state_dir: PathBuf,
+    pub config_path: PathBuf,
     pub json: bool,
 }
 
@@ -50,7 +54,7 @@ async fn main() {
     let use_color = !cli.no_color && supports_color();
 
     // Only enable tracing for `serve` (long-running) or when RUST_LOG is set.
-    if matches!(cli.command, commands::Command::Serve) || std::env::var("RUST_LOG").is_ok() {
+    if matches!(cli.command, Some(commands::Command::Serve)) || std::env::var("RUST_LOG").is_ok() {
         tracing_subscriber::fmt()
             .with_env_filter(
                 tracing_subscriber::EnvFilter::try_from_default_env()
@@ -64,10 +68,36 @@ async fn main() {
         style: Style::new(use_color),
         quiet: cli.quiet,
         state_dir: config::state_dir(cli.state_dir.as_deref()),
+        config_path: match config::default_config_path() {
+            Ok(p) => p,
+            Err(e) => {
+                let s = Style::new(use_color);
+                eprintln!("{} {}", s.bold_red("error:"), e);
+                std::process::exit(1);
+            }
+        },
         json: false,
     };
 
-    if let Err(error) = commands::execute(ctx, cli.command).await {
+    let result = match cli.command {
+        Some(command) => commands::execute(&ctx, command).await,
+        None => {
+            use clap::CommandFactory;
+            use std::io::IsTerminal;
+
+            if !std::io::stdout().is_terminal() {
+                Cli::command()
+                    .print_help()
+                    .expect("print help must succeed");
+                println!();
+                return;
+            }
+
+            tui::run(&ctx)
+        }
+    };
+
+    if let Err(error) = result {
         let s = Style::new(use_color);
         eprintln!("{} {}", s.bold_red("error:"), error);
         std::process::exit(1);

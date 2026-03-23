@@ -1,24 +1,22 @@
 use std::net::SocketAddr;
 use std::path::Path;
-use std::sync::Arc;
 
 use chrono::Local;
 use clap::Subcommand;
 use comfy_table::{Table, presets};
 
-use ttsync_contract::peer::{DeviceId, Permissions};
+use ttsync_contract::peer::Permissions;
 use ttsync_core::pairing::{PairingConfig, create_pairing_session};
 use ttsync_core::ports::PeerStore;
-use ttsync_core::session::{SessionManager, SessionManagerConfig};
 use ttsync_fs::layout::{LayoutMode, WorkspaceMounts};
-use ttsync_fs::manifest_store::FsManifestStore;
 use ttsync_fs::peer_store::JsonPeerStore;
-use ttsync_http::server::{ServerState, spawn_server};
+use ttsync_http::pairing_store::PairingTokenStore;
 use ttsync_http::tls::{SelfManagedTls, TlsProvider};
 
 use crate::Context;
 use crate::config::{self, CliError, Config};
 use crate::output;
+use crate::server_runtime;
 
 // -----------------------------------------------------------------------
 // Command definitions
@@ -26,6 +24,8 @@ use crate::output;
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// Guided onboarding flow (TUI).
+    Onboard,
     /// Initialize a new TT-Sync instance.
     Init {
         /// Workspace path (layout anchor).
@@ -82,9 +82,13 @@ pub enum PairAction {
         #[arg(long, default_value = "10m")]
         expires: String,
 
-        /// Grant read+write permissions (default: read-only).
+        /// Grant read+write permissions (default).
         #[arg(long)]
         rw: bool,
+
+        /// Grant read-only permissions.
+        #[arg(long)]
+        ro: bool,
 
         /// Allow mirror-mode deletions.
         #[arg(long)]
@@ -123,31 +127,33 @@ pub enum CertAction {
 // Dispatch
 // -----------------------------------------------------------------------
 
-pub async fn execute(ctx: Context, command: Command) -> Result<(), CliError> {
+pub async fn execute(ctx: &Context, command: Command) -> Result<(), CliError> {
     match command {
+        Command::Onboard => crate::tui::run_onboard(ctx),
         Command::Init {
             path,
             layout,
             public_url,
             listen,
-        } => cmd_init(&ctx, &path, &layout, &public_url, &listen),
+        } => cmd_init(ctx, &path, &layout, &public_url, &listen),
         Command::Serve => cmd_serve(ctx).await,
         Command::Pair { action } => match action {
             PairAction::Open {
                 expires,
                 rw,
+                ro,
                 mirror,
                 json,
-            } => cmd_pair_open(&ctx, &expires, rw, mirror, json),
+            } => cmd_pair_open(ctx, &expires, ro, rw, mirror, json),
         },
         Command::Peers { action } => match action {
-            PeersAction::List { json } => cmd_peers_list(&ctx, json).await,
-            PeersAction::Revoke { peer } => cmd_peers_revoke(&ctx, &peer).await,
+            PeersAction::List { json } => cmd_peers_list(ctx, json).await,
+            PeersAction::Revoke { peer } => cmd_peers_revoke(ctx, &peer).await,
         },
-        Command::Doctor => cmd_doctor(&ctx),
+        Command::Doctor => cmd_doctor(ctx),
         Command::Cert { action } => match action {
-            CertAction::Show => cmd_cert_show(&ctx),
-            CertAction::RotateLeaf => cmd_cert_rotate_leaf(&ctx),
+            CertAction::Show => cmd_cert_show(ctx),
+            CertAction::RotateLeaf => cmd_cert_rotate_leaf(ctx),
         },
     }
 }
@@ -165,10 +171,10 @@ fn cmd_init(
 ) -> Result<(), CliError> {
     let s = &ctx.style;
 
-    if config::config_path(&ctx.state_dir).exists() {
+    if ctx.config_path.exists() {
         return Err(CliError::Config(format!(
-            "already initialized (config exists at {}). Remove the state directory to re-initialize.",
-            config::config_path(&ctx.state_dir).display()
+            "already initialized (config exists at {}). Remove config.toml to re-initialize.",
+            ctx.config_path.display()
         )));
     }
 
@@ -190,8 +196,9 @@ fn cmd_init(
         layout: layout_mode,
         public_url: public_url.to_owned(),
         listen: listen.to_owned(),
+        ui: Default::default(),
     };
-    config::save_config(&ctx.state_dir, &config)?;
+    config::save_config(&ctx.config_path, &config)?;
 
     let identity = config::load_or_create_identity(&ctx.state_dir)?;
     let tls = SelfManagedTls::load_or_create(&ctx.state_dir)?;
@@ -240,35 +247,15 @@ fn cmd_init(
 // serve
 // -----------------------------------------------------------------------
 
-async fn cmd_serve(ctx: Context) -> Result<(), CliError> {
-    let config = config::load_config(&ctx.state_dir)?;
-    let identity = config::load_or_create_identity(&ctx.state_dir)?;
-    let tls = SelfManagedTls::load_or_create(&ctx.state_dir)?;
-
-    let mounts = WorkspaceMounts::derive(config.layout, &config.workspace_path)?;
-
-    let device_id =
-        DeviceId::new(identity.device_id.clone()).map_err(|e| CliError::Config(e.to_string()))?;
-
-    let manifest_store = Arc::new(FsManifestStore::new(mounts.clone()));
-    let peer_store = Arc::new(JsonPeerStore::new(ctx.state_dir.clone()));
-    let session_manager = Arc::new(SessionManager::new(SessionManagerConfig::default()));
-
-    let state = Arc::new(ServerState::new(
+async fn cmd_serve(ctx: &Context) -> Result<(), CliError> {
+    let server_runtime::RunningServer {
+        handle,
+        config,
+        mounts,
         device_id,
-        identity.device_name,
-        manifest_store,
-        peer_store,
-        session_manager,
-    ));
-
-    let addr: SocketAddr = config
-        .listen
-        .parse()
-        .map_err(|e| CliError::Config(format!("invalid listen address: {e}")))?;
-
-    let tls_arc: Arc<dyn TlsProvider> = Arc::new(tls);
-    let handle = spawn_server(addr, tls_arc.clone(), state).await?;
+        device_name,
+        spki_sha256,
+    } = server_runtime::start_server(ctx).await?;
 
     let s = &ctx.style;
     if !ctx.quiet {
@@ -277,6 +264,8 @@ async fn cmd_serve(ctx: Context) -> Result<(), CliError> {
         println!();
         output::print_field(s, "Listen         ", &handle.addr.to_string());
         output::print_field(s, "Public URL     ", &config.public_url);
+        output::print_field(s, "Device name    ", &device_name);
+        output::print_field(s, "Device ID      ", &device_id);
         output::print_field(
             s,
             "Workspace path ",
@@ -299,7 +288,7 @@ async fn cmd_serve(ctx: Context) -> Result<(), CliError> {
             &mounts.extensions_root.display().to_string(),
         );
         output::print_field(s, "TLS            ", "self-managed (SPKI pin)");
-        output::print_field(s, "SPKI SHA-256   ", tls_arc.spki_sha256());
+        output::print_field(s, "SPKI SHA-256   ", &spki_sha256);
         output::print_field(s, "State dir      ", &ctx.state_dir.display().to_string());
         println!();
         println!("  Press {} to stop.", s.dim("Ctrl+C"));
@@ -323,19 +312,31 @@ async fn cmd_serve(ctx: Context) -> Result<(), CliError> {
 fn cmd_pair_open(
     ctx: &Context,
     expires: &str,
+    ro: bool,
     rw: bool,
     mirror: bool,
     json: bool,
 ) -> Result<(), CliError> {
     let s = &ctx.style;
-    let config = config::load_config(&ctx.state_dir)?;
+    let config = config::load_config(&ctx.config_path)?;
     let tls = SelfManagedTls::load_or_create(&ctx.state_dir)?;
 
     let expires_secs = parse_duration(expires)?;
 
+    if ro && rw {
+        return Err(CliError::Config(
+            "invalid permissions: do not use both --ro and --rw".into(),
+        ));
+    }
+    if ro && mirror {
+        return Err(CliError::Config(
+            "invalid permissions: --mirror requires write access (do not use --ro)".into(),
+        ));
+    }
+
     let permissions = Permissions {
         read: true,
-        write: rw,
+        write: !ro,
         mirror_delete: mirror,
     };
 
@@ -344,8 +345,9 @@ fn cmd_pair_open(
         expires_in_secs: expires_secs,
     };
 
-    let (_session, pair_uri) =
+    let (session, pair_uri) =
         create_pairing_session(&config.public_url, tls.spki_sha256(), pairing_config)?;
+    PairingTokenStore::from_state_dir(ctx.state_dir.clone()).insert(&session)?;
 
     if json {
         let out = serde_json::json!({
@@ -518,7 +520,7 @@ fn cmd_doctor(ctx: &Context) -> Result<(), CliError> {
     }
 
     // Config
-    match config::load_config(&ctx.state_dir) {
+    match config::load_config(&ctx.config_path) {
         Ok(config) => {
             output::print_ok(s, "config.toml loaded");
             output::print_ok(s, &format!("Layout: {:?}", config.layout));

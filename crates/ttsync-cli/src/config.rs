@@ -17,10 +17,39 @@ pub struct Config {
     pub public_url: String,
     #[serde(default = "default_listen")]
     pub listen: String,
+    #[serde(default)]
+    pub ui: UiConfig,
 }
 
 fn default_listen() -> String {
     "0.0.0.0:8443".into()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UiConfig {
+    #[serde(default)]
+    pub language: UiLanguage,
+}
+
+impl Default for UiConfig {
+    fn default() -> Self {
+        Self {
+            language: UiLanguage::ZhCn,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum UiLanguage {
+    ZhCn,
+    En,
+}
+
+impl Default for UiLanguage {
+    fn default() -> Self {
+        Self::ZhCn
+    }
 }
 
 /// Device identity persisted in `identity.json`.
@@ -45,25 +74,32 @@ pub fn state_dir(override_dir: Option<&Path>) -> PathBuf {
         .join("tt-sync")
 }
 
-pub fn config_path(state_dir: &Path) -> PathBuf {
-    state_dir.join("config.toml")
+pub fn default_config_path() -> Result<PathBuf, CliError> {
+    let exe = std::env::current_exe().map_err(|e| CliError::Config(e.to_string()))?;
+    let dir = exe
+        .parent()
+        .ok_or_else(|| CliError::Config("current_exe has no parent directory".into()))?;
+    Ok(dir.join("config.toml"))
 }
 
 pub fn identity_path(state_dir: &Path) -> PathBuf {
     state_dir.join("identity.json")
 }
 
-pub fn load_config(state_dir: &Path) -> Result<Config, CliError> {
-    let path = config_path(state_dir);
-    let text = std::fs::read_to_string(&path)
-        .map_err(|e| CliError::Config(format!("read {}: {}", path.display(), e)))?;
-    toml::from_str(&text).map_err(|e| CliError::Config(format!("parse {}: {}", path.display(), e)))
+pub fn load_config(config_path: &Path) -> Result<Config, CliError> {
+    let text = std::fs::read_to_string(config_path)
+        .map_err(|e| CliError::Config(format!("read {}: {}", config_path.display(), e)))?;
+    toml::from_str(&text)
+        .map_err(|e| CliError::Config(format!("parse {}: {}", config_path.display(), e)))
 }
 
-pub fn save_config(state_dir: &Path, config: &Config) -> Result<(), CliError> {
-    std::fs::create_dir_all(state_dir).map_err(|e| CliError::Config(e.to_string()))?;
+pub fn save_config(config_path: &Path, config: &Config) -> Result<(), CliError> {
+    let dir = config_path
+        .parent()
+        .ok_or_else(|| CliError::Config("config path has no parent directory".into()))?;
+    std::fs::create_dir_all(dir).map_err(|e| CliError::Config(e.to_string()))?;
     let text = toml::to_string_pretty(config).map_err(|e| CliError::Config(e.to_string()))?;
-    std::fs::write(config_path(state_dir), text).map_err(|e| CliError::Config(e.to_string()))
+    std::fs::write(config_path, text).map_err(|e| CliError::Config(e.to_string()))
 }
 
 pub fn load_identity(state_dir: &Path) -> Result<Identity, CliError> {

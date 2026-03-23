@@ -77,7 +77,7 @@ This document is a snapshot of what is **implemented** and what is **still pendi
 |---------|--------|-------|
 | `tt-sync init` | ✅ | Creates state dir, config.toml, identity.json, TLS cert+key. Validates workspace path exists. Prints derived mount points. Rejects re-init. |
 | `tt-sync serve` | ✅ | Loads config, derives mount points, starts TLS HTTPS server via `ttsync-http::spawn_server()`, prints server banner, Ctrl+C graceful shutdown. |
-| `tt-sync pair open` | ✅ | Generates one-time token + pair URI via `ttsync-core::pairing`. Supports `--json`, `--rw`, `--mirror`, `--expires`. |
+| `tt-sync pair open` | ✅ | Generates one-time token + pair URI via `ttsync-core::pairing`, and persists the token into a file-based token store so a running server can consume it. Supports `--json`, `--ro`, `--mirror`, `--expires`. |
 | `tt-sync peers list` | ✅ | Reads `JsonPeerStore`, displays formatted table (`comfy-table`). Supports `--json`. |
 | `tt-sync peers revoke` | ✅ | Matches by device ID, prefix, or name (case-insensitive). |
 | `tt-sync doctor` | ✅ | Validates state dir, config.toml, mount derivation, identity, TLS cert, peers.json. Styled ✓/!/✗ indicators. |
@@ -91,10 +91,22 @@ This document is a snapshot of what is **implemented** and what is **still pendi
 - **`--json`**: JSON output for `pair open` and `peers list`.
 - **`--no-color`**: Disables ANSI escape codes; also auto-detected via `NO_COLOR` env / `TERM=dumb`.
 
+#### TUI (ratatui)
+
+- `tt-sync` (no args) enters a full-screen TUI main menu.
+- `tt-sync onboard` runs a guided flow (implemented so far):
+  - Language → listen port → public URL → layout mode → workspace detection/confirm → pair-now decision.
+  - Pairing screen (optional): QR/link + live peers list + per-device permission confirmation, then “pair more / next step”.
+  - Service mode: systemd user service (Linux) or in-process foreground server, then a final summary screen.
+- Main menu screens implemented:
+  - **Pairing**: generates QR/link, live peer list, per-device permission confirmation after pairing.
+  - **Peers**: list paired devices, edit permissions, revoke peers.
+  - **Serve**: start/stop the server in-process; on Linux, install/enable/start/stop a systemd user service.
+
 ## Pending / Next Milestones
 
 - `ttsync-cli`:
-  - `pair open` currently creates a standalone pairing session; need IPC or shared state to register it with a running server (admin endpoint or shared token store).
+  - TUI onboarding flow: implement service install/start (systemd + auto-start) and finish the final summary/exit step.
 - TauriTavern integration:
   - Client-side manifest scan + plan apply orchestration (pull/push loops) and progress events.
 - Tests:

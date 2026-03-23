@@ -66,7 +66,7 @@ fn validate_uuid(value: &str) -> Result<(), DeviceIdError> {
 }
 
 /// Permissions granted to a paired peer.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Permissions {
     pub read: bool,
     pub write: bool,
