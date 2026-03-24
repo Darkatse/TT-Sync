@@ -6,6 +6,7 @@ use ratatui::widgets::{Block, Borders, Cell, Clear, List, ListItem, Paragraph, R
 use crate::Context;
 use crate::config::UiLanguage;
 use crate::tui::app::PairingFlow;
+use crate::tui::effects;
 use crate::tui::i18n::tr;
 use crate::tui::layout as lay;
 use crate::tui::pairing::{Overlay, State};
@@ -230,6 +231,7 @@ fn render_overlay(
                 .highlight_symbol(" ");
 
             let popup = lay::centered_rect(80, 70, frame.area());
+            effects::render_modal_backdrop(frame, popup);
             frame.render_widget(Clear, popup);
 
             let [list_area, note_area] = Layout::default()
@@ -312,6 +314,7 @@ fn render_overlay(
                 .highlight_symbol(" ");
 
             let area = lay::centered_rect(70, 30, frame.area());
+            effects::render_modal_backdrop(frame, area);
             frame.render_widget(Clear, area);
             frame.render_widget(list, area);
         }

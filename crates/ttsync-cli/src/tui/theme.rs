@@ -8,6 +8,8 @@ pub const WARNING: Color = Color::Rgb(255, 183, 77);
 pub const ERROR: Color = Color::Rgb(239, 83, 80);
 pub const MUTED: Color = Color::Rgb(120, 120, 120);
 
+pub const BACKDROP_RGB_DARKEN_FACTOR: f32 = 0.60;
+
 // ── Border ──────────────────────────────────────────────────────────
 pub const BORDER: BorderType = BorderType::Rounded;
 

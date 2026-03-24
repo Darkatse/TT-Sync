@@ -1,6 +1,7 @@
 pub mod app;
 mod components;
 mod doctor;
+mod effects;
 mod help;
 pub(crate) mod i18n;
 pub(crate) mod layout;

@@ -7,6 +7,7 @@ use chrono::Local;
 
 use crate::Context;
 use crate::config::UiLanguage;
+use crate::tui::effects;
 use crate::tui::i18n::tr;
 use crate::tui::layout as lay;
 use crate::tui::peer_permissions::PermissionPreset;
@@ -259,6 +260,7 @@ fn render_overlay(frame: &mut Frame, state: &mut State, lang: UiLanguage) {
                 .highlight_symbol(" ");
 
             let area = lay::centered_rect(60, 40, frame.area());
+            effects::render_modal_backdrop(frame, area);
             frame.render_widget(Clear, area);
             frame.render_widget(list, area);
         }
@@ -284,6 +286,7 @@ fn render_overlay(frame: &mut Frame, state: &mut State, lang: UiLanguage) {
                 .highlight_symbol(" ");
 
             let popup = lay::centered_rect(80, 70, frame.area());
+            effects::render_modal_backdrop(frame, popup);
             frame.render_widget(Clear, popup);
 
             let [list_area, note_area] = Layout::default()
@@ -345,6 +348,7 @@ fn render_overlay(frame: &mut Frame, state: &mut State, lang: UiLanguage) {
                 .highlight_symbol(" ");
 
             let area = lay::centered_rect(70, 30, frame.area());
+            effects::render_modal_backdrop(frame, area);
             frame.render_widget(Clear, area);
             frame.render_widget(list, area);
         }
