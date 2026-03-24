@@ -594,8 +594,24 @@ fn handle_key_onboard(app: &mut App, ctx: &Context, code: KeyCode) -> Result<(),
                 state.next_step();
                 if state.pair_now {
                     app.start_pairing(PairingFlow::Onboard);
+                    if app.server.is_none() {
+                        let started = tokio::task::block_in_place(|| {
+                            tokio::runtime::Handle::current()
+                                .block_on(crate::server_runtime::start_server(ctx))
+                        });
+                        match started {
+                            Ok(server) => {
+                                app.server = Some(server);
+                            }
+                            Err(e) => {
+                                app.pairing.error = Some(e.to_string());
+                            }
+                        }
+                    }
                     if let Err(e) = app.pairing.enter(ctx, app.language) {
-                        app.pairing.error = Some(e.to_string());
+                        if app.pairing.error.is_none() {
+                            app.pairing.error = Some(e.to_string());
+                        }
                     }
                 }
             }
@@ -615,6 +631,9 @@ fn handle_key_onboard(app: &mut App, ctx: &Context, code: KeyCode) -> Result<(),
             KeyCode::Enter => {
                 match state.service_mode {
                     onboard::ServiceMode::SystemdUser => {
+                        if let Some(server) = app.server.take() {
+                            server.shutdown();
+                        }
                         match crate::systemd::install_enable_now_user_service(ctx) {
                             Ok(_path) => state.next_step(),
                             Err(e) => state.error = Some(e.to_string()),

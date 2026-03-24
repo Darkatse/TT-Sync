@@ -28,7 +28,7 @@ pub fn render(
         .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
         .areas(body);
 
-    render_pair_card(frame, left, state, lang);
+    render_pair_card(frame, left, state, lang, flow);
     render_peers(frame, right, state, lang);
     render_footer(frame, footer, state, lang, flow);
 
@@ -57,6 +57,7 @@ fn render_pair_card(
     area: ratatui::prelude::Rect,
     state: &State,
     lang: UiLanguage,
+    flow: PairingFlow,
 ) {
     let [top, bottom] = Layout::default()
         .direction(Direction::Vertical)
@@ -68,6 +69,19 @@ fn render_pair_card(
         .as_deref()
         .unwrap_or(tr(lang, "（尚未生成）", "(not generated yet)"));
 
+    let tip = match flow {
+        PairingFlow::MainMenu => tr(
+            lang,
+            "提示：确保 `tt-sync serve` 正在运行，然后在客户端扫码/粘贴完成配对。",
+            "Tip: Ensure `tt-sync serve` is running, then scan/paste in the client to pair.",
+        ),
+        PairingFlow::Onboard => tr(
+            lang,
+            "提示：Onboard 已自动启动服务。请在客户端扫码/粘贴完成配对。",
+            "Tip: Onboard has started the server. Scan/paste in the client to pair.",
+        ),
+    };
+
     let mut info = vec![
         Line::from(Span::styled(
             tr(lang, "Pair URI", "Pair URI"),
@@ -77,11 +91,7 @@ fn render_pair_card(
         Line::from(uri),
         Line::from(""),
         Line::from(Span::styled(
-            tr(
-                lang,
-                "提示：确保 `tt-sync serve` 正在运行，然后在客户端扫码/粘贴完成配对。",
-                "Tip: Ensure `tt-sync serve` is running, then scan/paste in the client to pair.",
-            ),
+            tip,
             theme::hint(),
         )),
     ];
