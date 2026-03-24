@@ -185,7 +185,11 @@ impl State {
         }
 
         let workspace_path = Path::new(raw);
-        if !workspace_path.exists() || !workspace_path.is_dir() {
+        if !workspace_path.exists() {
+            std::fs::create_dir_all(workspace_path)
+                .map_err(|e| format!("create workspace dir: {}", e))?;
+        }
+        if !workspace_path.is_dir() {
             return Err(format!(
                 "workspace path is not a directory: {}",
                 workspace_path.display()
