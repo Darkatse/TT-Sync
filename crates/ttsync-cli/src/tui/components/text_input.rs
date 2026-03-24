@@ -13,6 +13,24 @@ impl TextInput {
         Self { value, cursor }
     }
 
+    pub fn visualize(&self) -> String {
+        let cursor = self.cursor();
+        let mut out = String::new();
+
+        for (i, ch) in self.value.chars().enumerate() {
+            if i == cursor {
+                out.push('▏');
+            }
+            out.push(ch);
+        }
+
+        if cursor == self.value.chars().count() {
+            out.push('▏');
+        }
+
+        out
+    }
+
     pub fn cursor(&self) -> usize {
         self.cursor
     }

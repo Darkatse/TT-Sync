@@ -6,7 +6,6 @@ use ttsync_fs::layout::LayoutMode;
 
 use crate::Context;
 use crate::config::UiLanguage;
-use crate::tui::components::text_input::TextInput;
 use crate::tui::i18n::tr;
 use crate::tui::layout as lay;
 use crate::tui::onboard::{ServiceMode, State, Step, WorkspacePhase};
@@ -162,7 +161,7 @@ fn render_step_port(frame: &mut Frame, area: ratatui::prelude::Rect, state: &Sta
         .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
         .areas(area);
 
-    let input = Paragraph::new(visualize_input(&state.port)).block(
+    let input = Paragraph::new(state.port.visualize()).block(
         Block::default()
             .borders(Borders::ALL)
             .border_type(theme::BORDER)
@@ -232,7 +231,7 @@ fn render_step_public_url(frame: &mut Frame, area: ratatui::prelude::Rect, state
         .areas(bottom);
 
     frame.render_widget(
-        Paragraph::new(visualize_input(&state.public_url))
+        Paragraph::new(state.public_url.visualize())
             .block(
                 Block::default()
                     .borders(Borders::ALL)
@@ -381,7 +380,7 @@ fn render_step_workspace(
     };
 
     frame.render_widget(
-        Paragraph::new(visualize_input(&state.workspace_path))
+        Paragraph::new(state.workspace_path.visualize())
             .block(
                 Block::default()
                     .borders(Borders::ALL)
@@ -776,21 +775,6 @@ fn render_footer(
     };
 
     lay::render_hint_bar(frame, area, hint);
-}
-
-fn visualize_input(input: &TextInput) -> String {
-    let cursor = input.cursor();
-    let mut out = String::new();
-    for (i, ch) in input.value.chars().enumerate() {
-        if i == cursor {
-            out.push('▏');
-        }
-        out.push(ch);
-    }
-    if cursor == input.value.chars().count() {
-        out.push('▏');
-    }
-    out
 }
 
 fn layout_detail(lang: UiLanguage, mode: LayoutMode) -> Vec<Line<'static>> {

@@ -6,6 +6,7 @@ use ttsync_fs::peer_store::JsonPeerStore;
 
 use crate::Context;
 use crate::config;
+use crate::tui::components::text_input::TextInput;
 use crate::tui::peer_permissions::PermissionPreset;
 
 #[derive(Debug, Clone)]
@@ -13,6 +14,10 @@ pub enum Overlay {
     None,
     Actions {
         menu: ListState,
+    },
+    Rename {
+        device_id: DeviceId,
+        input: TextInput,
     },
     Permissions {
         device_id: DeviceId,
@@ -116,6 +121,19 @@ impl State {
         self.overlay = Overlay::Permissions { device_id, menu };
     }
 
+    pub fn open_rename_overlay(&mut self, device_id: DeviceId) {
+        let peer = self
+            .peers
+            .iter()
+            .find(|p| p.device_id == device_id)
+            .expect("selected peer must exist");
+
+        self.overlay = Overlay::Rename {
+            device_id,
+            input: TextInput::new(peer.device_name.clone()),
+        };
+    }
+
     pub fn open_revoke_overlay(&mut self, device_id: DeviceId) {
         let mut menu = ListState::default();
         menu.select(Some(0));
@@ -138,6 +156,31 @@ impl State {
             Overlay::RevokeConfirm { menu, .. } => Some(menu.selected().unwrap_or(0) == 1),
             _ => None,
         }
+    }
+
+    pub fn apply_rename_for_overlay(&mut self, ctx: &Context) -> Result<(), config::CliError> {
+        let (device_id, name) = match &self.overlay {
+            Overlay::Rename { device_id, input } => (device_id.clone(), input.value.trim().to_owned()),
+            _ => return Ok(()),
+        };
+
+        let mut grant = self
+            .peers
+            .iter()
+            .find(|p| p.device_id == device_id)
+            .cloned()
+            .expect("selected peer must exist in list");
+
+        grant.device_name = name;
+
+        let store = JsonPeerStore::new(ctx.state_dir.clone());
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(store.save_peer(grant))
+        })?;
+
+        self.overlay = Overlay::None;
+        self.refresh(ctx)?;
+        Ok(())
     }
 
     pub fn apply_permissions_for_overlay(&mut self, ctx: &Context) -> Result<(), config::CliError> {

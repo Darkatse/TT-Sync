@@ -301,6 +301,11 @@ fn handle_key_peers(app: &mut App, ctx: &Context, code: KeyCode) -> Result<(), C
                 }
             }
             KeyCode::Enter => app.peers.open_actions_overlay(),
+            KeyCode::Char('n') => {
+                if let Some(device_id) = app.peers.selected_device_id() {
+                    app.peers.open_rename_overlay(device_id);
+                }
+            }
             KeyCode::Char('p') => {
                 if let Some(device_id) = app.peers.selected_device_id() {
                     app.peers.open_permissions_overlay(device_id);
@@ -316,8 +321,8 @@ fn handle_key_peers(app: &mut App, ctx: &Context, code: KeyCode) -> Result<(), C
 
         Overlay::Actions { menu } => match code {
             KeyCode::Esc => app.peers.close_overlay(),
-            KeyCode::Up => menu_prev(menu, 3),
-            KeyCode::Down => menu_next(menu, 3),
+            KeyCode::Up => menu_prev(menu, 4),
+            KeyCode::Down => menu_next(menu, 4),
             KeyCode::Enter => {
                 let action = app
                     .peers
@@ -330,20 +335,40 @@ fn handle_key_peers(app: &mut App, ctx: &Context, code: KeyCode) -> Result<(), C
                             .peers
                             .selected_device_id()
                             .expect("peer must be selected for actions");
-                        app.peers.open_permissions_overlay(device_id);
+                        app.peers.open_rename_overlay(device_id);
                     }
                     1 => {
                         let device_id = app
                             .peers
                             .selected_device_id()
                             .expect("peer must be selected for actions");
+                        app.peers.open_permissions_overlay(device_id);
+                    }
+                    2 => {
+                        let device_id = app
+                            .peers
+                            .selected_device_id()
+                            .expect("peer must be selected for actions");
                         app.peers.open_revoke_overlay(device_id);
                     }
-                    2 => app.peers.close_overlay(),
+                    3 => app.peers.close_overlay(),
                     _ => {}
                 }
             }
             _ => {}
+        },
+
+        Overlay::Rename { input, .. } => match code {
+            KeyCode::Esc => app.peers.close_overlay(),
+            KeyCode::Enter => {
+                if let Err(e) = app.peers.apply_rename_for_overlay(ctx) {
+                    app.peers.error = Some(e.to_string());
+                    app.peers.close_overlay();
+                }
+            }
+            _ => {
+                input.handle_key(code);
+            }
         },
 
         Overlay::Permissions { menu, .. } => match code {

@@ -207,8 +207,8 @@ fn render_footer(frame: &mut Frame, area: ratatui::prelude::Rect, state: &State,
     let hint = match state.overlay {
         Overlay::None => tr(
             lang,
-            "↑↓ 选择  Enter 操作  p 权限  d 撤销  r 刷新  Esc 返回  q 退出",
-            "↑↓ select  Enter actions  p perms  d revoke  r refresh  Esc back  q quit",
+            "↑↓ 选择  Enter 操作  n 重命名  p 权限  d 撤销  r 刷新  Esc 返回  q 退出",
+            "↑↓ select  Enter actions  n rename  p perms  d revoke  r refresh  Esc back  q quit",
         ),
         Overlay::Actions { .. } => tr(
             lang,
@@ -219,6 +219,11 @@ fn render_footer(frame: &mut Frame, area: ratatui::prelude::Rect, state: &State,
             lang,
             "↑↓ 选择权限  Enter 确认  Esc 取消",
             "↑↓ choose  Enter confirm  Esc cancel",
+        ),
+        Overlay::Rename { .. } => tr(
+            lang,
+            "输入名称  Enter 保存  Esc 取消",
+            "type name  Enter save  Esc cancel",
         ),
         Overlay::RevokeConfirm { .. } => tr(
             lang,
@@ -236,6 +241,7 @@ fn render_overlay(frame: &mut Frame, state: &mut State, lang: UiLanguage) {
 
         Overlay::Actions { menu } => {
             let labels = [
+                tr(lang, "重命名设备", "Rename peer"),
                 tr(lang, "调整权限", "Edit permissions"),
                 tr(lang, "撤销设备", "Revoke peer"),
                 tr(lang, "关闭", "Close"),
@@ -263,6 +269,70 @@ fn render_overlay(frame: &mut Frame, state: &mut State, lang: UiLanguage) {
             effects::render_modal_backdrop(frame, area);
             frame.render_widget(Clear, area);
             frame.render_widget(list, area);
+        }
+
+        Overlay::Rename { device_id, input } => {
+            let popup = lay::centered_rect(70, 50, frame.area());
+            effects::render_modal_backdrop(frame, popup);
+            frame.render_widget(Clear, popup);
+
+            let [input_area, note_area] = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(5), Constraint::Min(0)])
+                .areas(popup);
+
+            let input_widget = Paragraph::new(input.visualize())
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .border_type(theme::BORDER)
+                        .title(tr(lang, "设备名称", "Device name")),
+                )
+                .wrap(Wrap { trim: false });
+            frame.render_widget(input_widget, input_area);
+
+            let old = state
+                .peers
+                .iter()
+                .find(|p| p.device_id.as_str() == device_id.as_str())
+                .map(|p| p.device_name.as_str())
+                .unwrap_or(tr(lang, "（未知）", "(unknown)"));
+
+            let note = Paragraph::new(vec![
+                Line::from(format!(
+                    "{}: {}",
+                    tr(lang, "设备", "Device"),
+                    device_id.as_str()
+                )),
+                Line::from(format!(
+                    "{}: {}",
+                    tr(lang, "原名称", "Old name"),
+                    old
+                )),
+                Line::from(tr(
+                    lang,
+                    "仅影响本机显示名；不影响授权/同步。",
+                    "Display name only; does not affect authorization/sync.",
+                )),
+                Line::from(tr(
+                    lang,
+                    "保存时会去除首尾空白（自动 trim）。",
+                    "Leading/trailing spaces are trimmed on save.",
+                )),
+                Line::from(tr(
+                    lang,
+                    "Enter 保存  Esc 取消",
+                    "Enter save  Esc cancel",
+                )),
+            ])
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(theme::BORDER)
+                    .title(tr(lang, "说明", "Notes")),
+            )
+            .wrap(Wrap { trim: true });
+            frame.render_widget(note, note_area);
         }
 
         Overlay::Permissions { device_id, menu } => {
