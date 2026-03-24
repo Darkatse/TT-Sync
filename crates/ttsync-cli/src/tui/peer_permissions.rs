@@ -41,7 +41,7 @@ impl PermissionPreset {
             (UiLanguage::ZhCn, PermissionPreset::ReadOnly) => "只读（Read only）",
             (UiLanguage::ZhCn, PermissionPreset::ReadWrite) => "读写（Read + Write）",
             (UiLanguage::ZhCn, PermissionPreset::ReadWriteMirrorDelete) => {
-                "读写 + 允许 Mirror Delete"
+                "读写 + 允许 镜像模式 下的删除"
             }
             (UiLanguage::En, PermissionPreset::ReadOnly) => "Read only",
             (UiLanguage::En, PermissionPreset::ReadWrite) => "Read + Write",

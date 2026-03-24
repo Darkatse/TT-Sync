@@ -185,7 +185,7 @@ pub fn tips_text(lang: UiLanguage) -> Vec<&'static str> {
             "Docker",
             "  • 使用 sillytavern-docker 布局模式",
             "  • 挂载数据卷到容器内的 workspace 路径",
-            "  • 持久化配对与证书数据（Docker 卷挂载）",
+            "  • 持久化配对与证书数据（Docker 挂载）",
         ],
         UiLanguage::En => vec![
             "VPS Deployment",

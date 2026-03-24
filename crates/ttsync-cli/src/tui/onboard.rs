@@ -22,9 +22,8 @@ pub enum Step {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WorkspacePhase {
-    Editing,
-    Confirm,
+pub enum Overlay {
+    ConfirmWriteConfig,
 }
 
 pub struct State {
@@ -41,9 +40,10 @@ pub struct State {
     pub layout_list: ListState,
 
     pub workspace_path: TextInput,
-    pub workspace_phase: WorkspacePhase,
     pub workspace_canonical: Option<PathBuf>,
     pub mounts: Option<WorkspaceMounts>,
+
+    pub overlay: Option<Overlay>,
 
     pub pair_now: bool,
     pub service_mode: ServiceMode,
@@ -77,9 +77,9 @@ impl State {
             public_url_is_auto: true,
             layout_list,
             workspace_path: TextInput::new(""),
-            workspace_phase: WorkspacePhase::Editing,
             workspace_canonical: None,
             mounts: None,
+            overlay: None,
             pair_now: true,
             service_mode: if cfg!(target_os = "linux") {
                 ServiceMode::SystemdUser
@@ -129,6 +129,7 @@ impl State {
 
     pub fn next_step(&mut self) {
         self.error = None;
+        self.overlay = None;
         self.step = match self.step {
             Step::WelcomeLanguage => Step::ListenPort,
             Step::ListenPort => Step::PublicUrl,
@@ -143,6 +144,7 @@ impl State {
 
     pub fn prev_step(&mut self) {
         self.error = None;
+        self.overlay = None;
         self.step = match self.step {
             Step::WelcomeLanguage => Step::WelcomeLanguage,
             Step::ListenPort => Step::WelcomeLanguage,

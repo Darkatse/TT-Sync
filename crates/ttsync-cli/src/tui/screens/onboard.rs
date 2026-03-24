@@ -1,14 +1,17 @@
+use std::path::Path;
+
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Wrap};
-use ttsync_fs::layout::LayoutMode;
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap};
+use ttsync_fs::layout::{LayoutMode, WorkspaceMounts};
 
 use crate::Context;
 use crate::config::UiLanguage;
+use crate::tui::effects;
 use crate::tui::i18n::tr;
 use crate::tui::layout as lay;
-use crate::tui::onboard::{ServiceMode, State, Step, WorkspacePhase};
+use crate::tui::onboard::{Overlay, ServiceMode, State, Step};
 use crate::tui::theme;
 
 pub fn render(frame: &mut Frame, ctx: &Context, state: &mut State) {
@@ -16,13 +19,7 @@ pub fn render(frame: &mut Frame, ctx: &Context, state: &mut State) {
 
     render_header(frame, header, state.language, state.step);
     render_body(frame, ctx, body, state);
-    render_footer(
-        frame,
-        footer,
-        state.language,
-        state.step,
-        state.workspace_phase,
-    );
+    render_footer(frame, footer, state);
 }
 
 fn render_header(frame: &mut Frame, area: ratatui::prelude::Rect, lang: UiLanguage, step: Step) {
@@ -314,7 +311,7 @@ fn render_step_layout(frame: &mut Frame, area: ratatui::prelude::Rect, state: &m
             "sillytavern-docker",
             tr(
                 state.language,
-                "SillyTavern Docker 卷布局",
+                "SillyTavern Docker 目录布局",
                 "SillyTavern docker volume",
             ),
         ),
@@ -370,18 +367,11 @@ fn render_step_workspace(
         .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
         .areas(area);
 
-    let title = match state.workspace_phase {
-        WorkspacePhase::Editing => tr(
-            state.language,
-            "同步文件夹路径（Enter 检测）",
-            "Workspace Path (Enter to detect)",
-        ),
-        WorkspacePhase::Confirm => tr(
-            state.language,
-            "同步文件夹路径（Enter 写入配置）",
-            "Workspace Path (Enter to write config)",
-        ),
-    };
+    let title = tr(
+        state.language,
+        "同步文件夹路径（服务器数据文件夹）",
+        "Workspace Path (Server Data Folder)",
+    );
 
     frame.render_widget(
         Paragraph::new(state.workspace_path.visualize())
@@ -397,49 +387,72 @@ fn render_step_workspace(
 
     let mut info = Vec::new();
     info.push(Line::from(Span::styled(
-        tr(state.language, "检测结果", "Detection"),
+        tr(state.language, "数据文件夹布局", "Data Folder Layout"),
         theme::title(),
     )));
     info.push(Line::from(""));
-    info.push(Line::from(format!("layout: {:?}", state.layout_mode())));
+    info.push(Line::from(format!(
+        "{}: {}",
+        tr(state.language, "布局模式", "Layout"),
+        layout_id(state.layout_mode())
+    )));
 
-    match &state.mounts {
+    let raw_path = state.workspace_path.value.trim();
+    let mut preview_err = None;
+    let preview_mounts = if state.mounts.is_none() && !raw_path.is_empty() {
+        match WorkspaceMounts::derive(state.layout_mode(), Path::new(raw_path)) {
+            Ok(m) => Some(m),
+            Err(e) => {
+                preview_err = Some(e.to_string());
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    let mounts = state.mounts.as_ref().or(preview_mounts.as_ref());
+    match mounts {
         Some(m) => {
             info.push(Line::from(""));
-            info.push(Line::from(vec![
-                Span::styled("✓ ", theme::success()),
-                Span::raw(format!("data root      : {}", m.data_root.display())),
-            ]));
-            info.push(Line::from(vec![
-                Span::styled("✓ ", theme::success()),
-                Span::raw(format!(
-                    "default user   : {}",
-                    m.default_user_root.display()
-                )),
-            ]));
-            info.push(Line::from(vec![
-                Span::styled("✓ ", theme::success()),
-                Span::raw(format!("extensions root: {}", m.extensions_root.display())),
-            ]));
-            info.push(Line::from(""));
-            info.push(Line::from(Span::styled(
-                tr(
-                    state.language,
-                    "将写入配置到：",
-                    "Config will be written to:",
-                ),
-                theme::title(),
+            info.push(Line::from(format!(
+                "{}: {}",
+                tr(state.language, "数据根目录", "data root"),
+                m.data_root.display()
             )));
-            info.push(Line::from(format!("{}", ctx.config_path.display())));
+            info.push(Line::from(format!(
+                "{}: {}",
+                tr(state.language, "默认用户目录", "default user"),
+                m.default_user_root.display()
+            )));
+            info.push(Line::from(format!(
+                "{}: {}",
+                tr(state.language, "扩展目录", "extensions root"),
+                m.extensions_root.display()
+            )));
+
+            if state.mounts.is_some() {
+                info.push(Line::from(""));
+                info.push(Line::from(Span::styled(
+                    tr(state.language, "配置文件", "Config"),
+                    theme::title(),
+                )));
+                info.push(Line::from(format!("{}", ctx.config_path.display())));
+            }
         }
         None => {
             info.push(Line::from(""));
             info.push(Line::from(tr(
                 state.language,
-                "尚未检测。输入路径后按 Enter。",
-                "Not detected yet. Enter a path and press Enter.",
+                "请输入服务器数据文件夹路径。",
+                "Enter the server data folder path.",
             )));
         }
+    };
+
+    if let Some(e) = preview_err {
+        info.push(Line::from(""));
+        info.push(Line::from(Span::styled(e, theme::error())));
     }
 
     if let Some(err) = &state.error {
@@ -457,6 +470,82 @@ fn render_step_workspace(
             )
             .wrap(Wrap { trim: true }),
         right,
+    );
+
+    if state.overlay == Some(Overlay::ConfirmWriteConfig) {
+        render_confirm_write_config(frame, ctx, state);
+    }
+}
+
+fn render_confirm_write_config(frame: &mut Frame, ctx: &Context, state: &State) {
+    let mounts = state
+        .mounts
+        .as_ref()
+        .expect("mounts must be derived before confirm-write popup");
+    let canonical = state
+        .workspace_canonical
+        .as_ref()
+        .expect("workspace path must be canonical before confirm-write popup");
+
+    let lang = state.language;
+    let popup = lay::centered_rect(70, 45, frame.area());
+    effects::render_modal_backdrop(frame, popup);
+    frame.render_widget(Clear, popup);
+
+    let body = vec![
+        Line::from(tr(
+            lang,
+            "将写入配置并初始化身份与证书。",
+            "This will write config and initialize identity + TLS certs.",
+        )),
+        Line::from(""),
+        Line::from(format!(
+            "{}: {}",
+            tr(lang, "服务器数据文件夹", "Server data folder"),
+            canonical.display()
+        )),
+        Line::from(format!(
+            "{}: {}",
+            tr(lang, "配置文件", "Config"),
+            ctx.config_path.display()
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            tr(lang, "数据文件夹布局", "Data folder layout"),
+            theme::title(),
+        )),
+        Line::from(format!(
+            "{}: {}",
+            tr(lang, "数据根目录", "data root"),
+            mounts.data_root.display()
+        )),
+        Line::from(format!(
+            "{}: {}",
+            tr(lang, "默认用户目录", "default user"),
+            mounts.default_user_root.display()
+        )),
+        Line::from(format!(
+            "{}: {}",
+            tr(lang, "扩展目录", "extensions root"),
+            mounts.extensions_root.display()
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            tr(lang, "Enter 写入配置  Esc 取消", "Enter write  Esc cancel"),
+            theme::hint(),
+        )),
+    ];
+
+    frame.render_widget(
+        Paragraph::new(body)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(theme::BORDER)
+                    .title(tr(lang, "二次确认", "Confirm")),
+            )
+            .wrap(Wrap { trim: true }),
+        popup,
     );
 }
 
@@ -523,7 +612,7 @@ fn render_step_pair_now(frame: &mut Frame, area: ratatui::prelude::Rect, state: 
         )),
         Line::from(tr(
             state.language,
-            "配对成功后会弹出权限确认（默认：读写，不允许 mirror delete）。",
+            "配对成功后会弹出权限确认（默认：读写，不允许镜像模式）。",
             "After pairing, you'll confirm permissions (default: read+write, no mirror delete).",
         )),
         Line::from(tr(
@@ -747,11 +836,10 @@ fn render_step_done(frame: &mut Frame, ctx: &Context, area: ratatui::prelude::Re
 fn render_footer(
     frame: &mut Frame,
     area: ratatui::prelude::Rect,
-    lang: UiLanguage,
-    step: Step,
-    workspace_phase: WorkspacePhase,
+    state: &State,
 ) {
-    let hint = match step {
+    let lang = state.language;
+    let hint = match state.step {
         Step::WelcomeLanguage => tr(
             lang,
             "←→ 选择  Enter 下一步  q 退出",
@@ -772,18 +860,21 @@ fn render_footer(
             "↑↓ 选择  Enter 下一步  Esc 返回  q 退出",
             "↑↓ select  Enter next  Esc back  q quit",
         ),
-        Step::WorkspacePath => match workspace_phase {
-            WorkspacePhase::Editing => tr(
-                lang,
-                "输入路径  Enter 检测  Esc 返回  q 退出",
-                "type path  Enter detect  Esc back  q quit",
-            ),
-            WorkspacePhase::Confirm => tr(
-                lang,
-                "Enter 写入配置  Esc 修改路径  q 退出",
-                "Enter write  Esc edit  q quit",
-            ),
-        },
+        Step::WorkspacePath => {
+            if state.overlay == Some(Overlay::ConfirmWriteConfig) {
+                tr(
+                    lang,
+                    "Enter 写入配置  Esc 取消  q 退出",
+                    "Enter write  Esc cancel  q quit",
+                )
+            } else {
+                tr(
+                    lang,
+                    "输入服务器数据文件夹  Enter 下一步  Esc 返回  q 退出",
+                    "type server data folder  Enter next  Esc back  q quit",
+                )
+            }
+        }
         Step::PairNow => tr(
             lang,
             "←→ 选择  Enter 下一步  Esc 返回  q 退出",
@@ -861,5 +952,13 @@ fn layout_detail(lang: UiLanguage, mode: LayoutMode) -> Vec<Line<'static>> {
             Line::from("  data/default-user/"),
             Line::from("  extensions/"),
         ],
+    }
+}
+
+fn layout_id(mode: LayoutMode) -> &'static str {
+    match mode {
+        LayoutMode::TauriTavern => "tauritavern",
+        LayoutMode::SillyTavern => "sillytavern",
+        LayoutMode::SillyTavernDocker => "sillytavern-docker",
     }
 }

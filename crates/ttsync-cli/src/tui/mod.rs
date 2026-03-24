@@ -529,6 +529,26 @@ fn handle_key_onboard(app: &mut App, ctx: &Context, code: KeyCode) -> Result<(),
 
     let state = &mut app.onboard;
 
+    if let Some(overlay) = state.overlay {
+        match overlay {
+            onboard::Overlay::ConfirmWriteConfig => match code {
+                KeyCode::Enter => {
+                    let config = state.build_config().map_err(CliError::Config)?;
+                    config::save_config(&ctx.config_path, &config)?;
+                    let _identity = config::load_or_create_identity(&ctx.state_dir)?;
+                    let _tls = SelfManagedTls::load_or_create(&ctx.state_dir)?;
+
+                    app.language = config.ui.language;
+                    state.next_step();
+                }
+                KeyCode::Esc => state.overlay = None,
+                _ => {}
+            },
+        }
+
+        return Ok(());
+    }
+
     match state.step {
         onboard::Step::WelcomeLanguage => match code {
             KeyCode::Left | KeyCode::Right => {
@@ -612,37 +632,20 @@ fn handle_key_onboard(app: &mut App, ctx: &Context, code: KeyCode) -> Result<(),
             _ => {}
         },
 
-        onboard::Step::WorkspacePath => match state.workspace_phase {
-            onboard::WorkspacePhase::Editing => match code {
-                KeyCode::Enter => match state.derive_mounts() {
-                    Ok(()) => {
-                        state.workspace_phase = onboard::WorkspacePhase::Confirm;
-                        state.error = None;
-                    }
-                    Err(e) => state.error = Some(e),
-                },
-                KeyCode::Esc => state.prev_step(),
-                _ => {
-                    state.workspace_path.handle_key(code);
-                    state.mounts = None;
-                    state.workspace_canonical = None;
+        onboard::Step::WorkspacePath => match code {
+            KeyCode::Enter => match state.derive_mounts() {
+                Ok(()) => {
+                    state.overlay = Some(onboard::Overlay::ConfirmWriteConfig);
+                    state.error = None;
                 }
+                Err(e) => state.error = Some(e),
             },
-            onboard::WorkspacePhase::Confirm => match code {
-                KeyCode::Enter => {
-                    let config = state.build_config().map_err(CliError::Config)?;
-                    config::save_config(&ctx.config_path, &config)?;
-                    let _identity = config::load_or_create_identity(&ctx.state_dir)?;
-                    let _tls = SelfManagedTls::load_or_create(&ctx.state_dir)?;
-
-                    app.language = config.ui.language;
-                    state.next_step();
-                }
-                KeyCode::Esc => {
-                    state.workspace_phase = onboard::WorkspacePhase::Editing;
-                }
-                _ => {}
-            },
+            KeyCode::Esc => state.prev_step(),
+            _ => {
+                state.workspace_path.handle_key(code);
+                state.mounts = None;
+                state.workspace_canonical = None;
+            }
         },
 
         onboard::Step::PairNow => match code {

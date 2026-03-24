@@ -274,13 +274,13 @@ fn render_overlay(
                     tr(lang, "权限", "Permissions"),
                     tr(
                         lang,
-                        "将立即生效（影响后续 session）。",
+                        "将立即生效（影响后续通信）。",
                         "Takes effect immediately (future sessions)."
                     ),
                 )),
                 Line::from(tr(
                     lang,
-                    "默认已配对为 读写（不允许 mirror delete）。你可以在此调整。",
+                    "默认已配对为 读写（不允许镜像模式）。你可以在此调整。",
                     "Default is paired as Read+Write (no mirror delete). You can adjust it here.",
                 )),
             ])
