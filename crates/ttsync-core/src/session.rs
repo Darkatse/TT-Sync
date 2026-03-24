@@ -9,6 +9,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use ed25519_dalek::{Signature, VerifyingKey};
 use ttsync_contract::canonical::CanonicalRequest;
 use ttsync_contract::peer::DeviceId;
+use ttsync_contract::peer::Permissions;
 use ttsync_contract::session::{SessionOpenResponse, SessionToken};
 
 use crate::error::SyncError;
@@ -60,6 +61,7 @@ impl SessionManager {
         signature: &[u8],
         canonical_request: &[u8],
         device_public_key: &[u8],
+        granted_permissions: Permissions,
     ) -> Result<SessionOpenResponse, SyncError> {
         let canonical = CanonicalRequest::parse_bytes(canonical_request)
             .map_err(|e| SyncError::InvalidData(e.to_string()))?;
@@ -92,6 +94,7 @@ impl SessionManager {
         Ok(SessionOpenResponse {
             session_token: SessionToken(token),
             expires_at_ms,
+            granted_permissions,
         })
     }
 
@@ -197,6 +200,7 @@ mod tests {
                 &signature_bytes,
                 &canonical_bytes,
                 &verifying.to_bytes(),
+                ttsync_contract::peer::Permissions::default(),
             )
             .unwrap();
 

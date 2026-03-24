@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use crate::peer::Permissions;
 
 pub const HEADER_DEVICE_ID: &str = "TT-Device-Id";
 pub const HEADER_TIMESTAMP_MS: &str = "TT-Timestamp-Ms";
@@ -26,4 +27,5 @@ pub struct SessionOpenRequest {
 pub struct SessionOpenResponse {
     pub session_token: SessionToken,
     pub expires_at_ms: u64,
+    pub granted_permissions: Permissions,
 }

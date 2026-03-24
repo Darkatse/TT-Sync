@@ -283,6 +283,7 @@ where
         &signature,
         &canonical_bytes,
         &grant.public_key,
+        grant.permissions,
     )?;
 
     Ok(Json(response))
