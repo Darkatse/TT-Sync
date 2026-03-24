@@ -1,4 +1,4 @@
-use std::net::{IpAddr, UdpSocket};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -33,8 +33,10 @@ pub struct State {
     pub language: UiLanguage,
     pub welcome_phrase_idx: usize,
 
+    pub listen_ip: IpAddr,
     pub port: TextInput,
     pub public_url: TextInput,
+    pub public_url_is_auto: bool,
 
     pub layout_list: ListState,
 
@@ -69,8 +71,10 @@ impl State {
             step: Step::WelcomeLanguage,
             language: UiLanguage::ZhCn,
             welcome_phrase_idx,
+            listen_ip: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
             port: TextInput::new("8443"),
             public_url: TextInput::new(""),
+            public_url_is_auto: true,
             layout_list,
             workspace_path: TextInput::new(""),
             workspace_phase: WorkspacePhase::Editing,
@@ -84,6 +88,30 @@ impl State {
             },
             error: None,
         }
+    }
+
+    pub fn prefill_from_config(&mut self, cfg: &Config) -> Result<(), String> {
+        let listen: SocketAddr = cfg
+            .listen
+            .parse()
+            .map_err(|e| format!("invalid listen address: {e}"))?;
+        self.listen_ip = listen.ip();
+        self.port.set(listen.port().to_string());
+
+        self.public_url.set(cfg.public_url.clone());
+        self.public_url_is_auto = false;
+
+        let layout_idx = match cfg.layout {
+            LayoutMode::TauriTavern => 0,
+            LayoutMode::SillyTavern => 1,
+            LayoutMode::SillyTavernDocker => 2,
+        };
+        self.layout_list.select(Some(layout_idx));
+
+        self.workspace_path
+            .set(cfg.workspace_path.display().to_string());
+
+        Ok(())
     }
 
     pub fn layout_mode(&self) -> LayoutMode {
@@ -133,6 +161,7 @@ impl State {
             Err(_) => {
                 self.public_url
                     .set(format!("https://127.0.0.1:{}", self.port.value.trim()));
+                self.public_url_is_auto = true;
                 return;
             }
         };
@@ -146,6 +175,7 @@ impl State {
         candidates.push(format!("https://localhost:{}", port));
 
         self.public_url.set(candidates[0].clone());
+        self.public_url_is_auto = true;
     }
 
     pub fn derive_mounts(&mut self) -> Result<(), String> {
@@ -196,7 +226,7 @@ impl State {
             workspace_path,
             layout: self.layout_mode(),
             public_url,
-            listen: format!("0.0.0.0:{}", port),
+            listen: format!("{}:{}", format_host(self.listen_ip), port),
             ui: UiConfig {
                 language: self.language,
             },

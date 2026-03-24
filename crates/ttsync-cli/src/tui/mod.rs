@@ -72,12 +72,20 @@ fn run_with(ctx: &Context, start: StartMode) -> Result<(), CliError> {
     let mut terminal = Terminal::new(backend)?;
 
     let mut app = App::new();
-    if ctx.config_path.exists() {
+    let config = if ctx.config_path.exists() {
         let cfg = config::load_config(&ctx.config_path)?;
         app.language = cfg.ui.language;
-    }
+        Some(cfg)
+    } else {
+        None
+    };
     if start == StartMode::Onboard {
         app.start_onboard();
+        if let Some(cfg) = &config {
+            app.onboard
+                .prefill_from_config(cfg)
+                .map_err(CliError::Config)?;
+        }
     }
 
     while !app.should_quit {
@@ -157,7 +165,15 @@ fn handle_key_main_menu(app: &mut App, ctx: &Context, code: KeyCode) -> Result<(
         KeyCode::Down => app.main_menu.next(),
         KeyCode::Enter => match app.main_menu.selected_item() {
             MainMenuItem::Exit => app.should_quit = true,
-            MainMenuItem::Onboard => app.start_onboard(),
+            MainMenuItem::Onboard => {
+                app.start_onboard();
+                if ctx.config_path.exists() {
+                    let cfg = config::load_config(&ctx.config_path)?;
+                    app.onboard
+                        .prefill_from_config(&cfg)
+                        .map_err(CliError::Config)?;
+                }
+            }
             MainMenuItem::Pair => {
                 app.start_pairing(PairingFlow::MainMenu);
                 if let Err(e) = app.pairing.enter(ctx, app.language) {
@@ -529,7 +545,9 @@ fn handle_key_onboard(app: &mut App, ctx: &Context, code: KeyCode) -> Result<(),
                     );
                     return Ok(());
                 }
-                state.prepare_public_url();
+                if state.public_url_is_auto || state.public_url.value.trim().is_empty() {
+                    state.prepare_public_url();
+                }
                 state.next_step();
             }
             KeyCode::Esc => state.prev_step(),
@@ -555,7 +573,11 @@ fn handle_key_onboard(app: &mut App, ctx: &Context, code: KeyCode) -> Result<(),
             }
             KeyCode::Esc => state.prev_step(),
             _ => {
+                let before = state.public_url.value.clone();
                 state.public_url.handle_key(code);
+                if state.public_url.value != before {
+                    state.public_url_is_auto = false;
+                }
             }
         },
 
