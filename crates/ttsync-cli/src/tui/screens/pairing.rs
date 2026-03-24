@@ -36,7 +36,12 @@ pub fn render(
     render_overlay(frame, ctx, state, lang, flow);
 }
 
-fn render_header(frame: &mut Frame, area: ratatui::prelude::Rect, lang: UiLanguage, flow: PairingFlow) {
+fn render_header(
+    frame: &mut Frame,
+    area: ratatui::prelude::Rect,
+    lang: UiLanguage,
+    flow: PairingFlow,
+) {
     let mut extra = vec![Span::styled(
         match flow {
             PairingFlow::MainMenu => tr(lang, "配对（Pairing）", "Pairing"),
@@ -91,10 +96,7 @@ fn render_pair_card(
         Line::from(""),
         Line::from(uri),
         Line::from(""),
-        Line::from(Span::styled(
-            tip,
-            theme::hint(),
-        )),
+        Line::from(Span::styled(tip, theme::hint())),
     ];
 
     if let Some(err) = &state.error {
@@ -142,7 +144,11 @@ fn render_peers(frame: &mut Frame, area: ratatui::prelude::Rect, state: &State, 
             "{}{}{}",
             if p.permissions.read { "R" } else { "-" },
             if p.permissions.write { "W" } else { "-" },
-            if p.permissions.mirror_delete { "D" } else { "-" },
+            if p.permissions.mirror_delete {
+                "D"
+            } else {
+                "-"
+            },
         );
 
         Row::new([
@@ -180,9 +186,11 @@ fn render_footer(
 ) {
     let hint = match state.overlay {
         Overlay::None => match flow {
-            PairingFlow::MainMenu => {
-                tr(lang, "r 刷新二维码  Esc 返回  q 退出", "r refresh  Esc back  q quit")
-            }
+            PairingFlow::MainMenu => tr(
+                lang,
+                "r 刷新二维码  Esc 返回  q 退出",
+                "r refresh  Esc back  q quit",
+            ),
             PairingFlow::Onboard => tr(
                 lang,
                 "r 刷新二维码  Esc 下一步  q 退出",
@@ -215,7 +223,11 @@ fn render_overlay(
                 .iter()
                 .enumerate()
                 .map(|(i, preset)| {
-                    let dot = if menu.selected() == Some(i) { "●" } else { "○" };
+                    let dot = if menu.selected() == Some(i) {
+                        "●"
+                    } else {
+                        "○"
+                    };
                     ListItem::new(format!("{dot} {}", preset.title(lang)))
                 })
                 .collect();
@@ -298,7 +310,11 @@ fn render_overlay(
                 .iter()
                 .enumerate()
                 .map(|(i, label)| {
-                    let dot = if menu.selected() == Some(i) { "●" } else { "○" };
+                    let dot = if menu.selected() == Some(i) {
+                        "●"
+                    } else {
+                        "○"
+                    };
                     ListItem::new(format!("{dot} {label}"))
                 })
                 .collect();

@@ -46,4 +46,3 @@ fn darken_rgb_in_place(color: &mut Color, factor: f32) {
 fn darken_channel(v: u8, factor: f32) -> u8 {
     (f32::from(v) * factor) as u8
 }
-

@@ -15,10 +15,7 @@ pub fn render(frame: &mut Frame, state: &State, lang: UiLanguage) {
     lay::render_header(
         frame,
         header,
-        vec![Span::styled(
-            tr(lang, "运行诊断", "Doctor"),
-            theme::title(),
-        )],
+        vec![Span::styled(tr(lang, "运行诊断", "Doctor"), theme::title())],
     );
 
     render_checks(frame, body, state, lang);
@@ -34,11 +31,7 @@ fn render_checks(frame: &mut Frame, area: ratatui::prelude::Rect, state: &State,
     let mut lines = Vec::new();
 
     if state.checks.is_empty() {
-        lines.push(Line::from(tr(
-            lang,
-            "正在加载…",
-            "Loading…",
-        )));
+        lines.push(Line::from(tr(lang, "正在加载…", "Loading…")));
     } else {
         for check in &state.checks {
             let (icon, style) = match check.status {

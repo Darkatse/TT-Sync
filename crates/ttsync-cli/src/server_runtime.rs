@@ -71,4 +71,3 @@ pub async fn start_server(ctx: &Context) -> Result<RunningServer, CliError> {
         spki_sha256,
     })
 }
-

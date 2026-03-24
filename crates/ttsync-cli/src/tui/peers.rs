@@ -160,7 +160,9 @@ impl State {
 
     pub fn apply_rename_for_overlay(&mut self, ctx: &Context) -> Result<(), config::CliError> {
         let (device_id, name) = match &self.overlay {
-            Overlay::Rename { device_id, input } => (device_id.clone(), input.value.trim().to_owned()),
+            Overlay::Rename { device_id, input } => {
+                (device_id.clone(), input.value.trim().to_owned())
+            }
             _ => return Ok(()),
         };
 
@@ -242,4 +244,3 @@ impl State {
         self.table.select(Some(idx.unwrap_or(0)));
     }
 }
-

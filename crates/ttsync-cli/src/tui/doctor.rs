@@ -153,7 +153,12 @@ fn check_peers(ctx: &Context, lang: UiLanguage) -> CheckResult {
         return CheckResult {
             label,
             status: CheckStatus::Ok,
-            detail: tr(lang, "暂无设备（peers.json 尚未创建）", "No peers yet (peers.json not created)").to_owned(),
+            detail: tr(
+                lang,
+                "暂无设备（peers.json 尚未创建）",
+                "No peers yet (peers.json not created)",
+            )
+            .to_owned(),
         };
     }
     match std::fs::read_to_string(&path).and_then(|s| {
@@ -163,11 +168,7 @@ fn check_peers(ctx: &Context, lang: UiLanguage) -> CheckResult {
         Ok(peers) => CheckResult {
             label,
             status: CheckStatus::Ok,
-            detail: format!(
-                "{} {}",
-                peers.len(),
-                tr(lang, "台设备", "peer(s)")
-            ),
+            detail: format!("{} {}", peers.len(), tr(lang, "台设备", "peer(s)")),
         },
         Err(e) => CheckResult {
             label,
@@ -193,7 +194,7 @@ fn check_workspace(ctx: &Context, lang: UiLanguage) -> CheckResult {
                 label,
                 status: CheckStatus::Fail,
                 detail: e.to_string(),
-            }
+            };
         }
     };
     if !cfg.workspace_path.exists() {

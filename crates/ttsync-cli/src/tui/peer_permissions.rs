@@ -58,4 +58,3 @@ impl PermissionPreset {
             .unwrap_or(PermissionPreset::ReadWrite)
     }
 }
-

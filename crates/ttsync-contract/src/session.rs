@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use crate::peer::Permissions;
+use serde::{Deserialize, Serialize};
 
 pub const HEADER_DEVICE_ID: &str = "TT-Device-Id";
 pub const HEADER_TIMESTAMP_MS: &str = "TT-Timestamp-Ms";

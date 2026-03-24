@@ -67,10 +67,7 @@ pub fn render(
     frame.render_stateful_widget(list, menu_area, &mut menu.list);
 
     let info = vec![
-        Line::from(Span::styled(
-            tr(lang, "提示", "Hints"),
-            theme::title(),
-        )),
+        Line::from(Span::styled(tr(lang, "提示", "Hints"), theme::title())),
         Line::from(""),
         Line::from(tr(
             lang,
@@ -78,10 +75,7 @@ pub fn render(
             "Enter select  ·  q quit  ·  Esc back",
         )),
         Line::from(""),
-        Line::from(Span::styled(
-            tr(lang, "当前状态", "Status"),
-            theme::title(),
-        )),
+        Line::from(Span::styled(tr(lang, "当前状态", "Status"), theme::title())),
         Line::from(format!(
             "{}: {}",
             tr(lang, "服务", "Server"),

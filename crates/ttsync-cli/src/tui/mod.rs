@@ -96,15 +96,13 @@ fn run_with(ctx: &Context, start: StartMode) -> Result<(), CliError> {
         }
 
         terminal.draw(|frame| match app.screen {
-            Screen::MainMenu => {
-                screens::main_menu::render(
-                    frame,
-                    ctx,
-                    &mut app.main_menu,
-                    app.language,
-                    app.server.is_some(),
-                )
-            }
+            Screen::MainMenu => screens::main_menu::render(
+                frame,
+                ctx,
+                &mut app.main_menu,
+                app.language,
+                app.server.is_some(),
+            ),
             Screen::Onboard => screens::onboard::render(frame, ctx, &mut app.onboard),
             Screen::Pairing => screens::pairing::render(
                 frame,
@@ -114,7 +112,13 @@ fn run_with(ctx: &Context, start: StartMode) -> Result<(), CliError> {
                 app.pairing_flow,
             ),
             Screen::Peers => screens::peers::render(frame, ctx, &mut app.peers, app.language),
-            Screen::Serve => screens::serve::render(frame, ctx, &mut app.serve, app.language, app.server.as_ref()),
+            Screen::Serve => screens::serve::render(
+                frame,
+                ctx,
+                &mut app.serve,
+                app.language,
+                app.server.as_ref(),
+            ),
             Screen::Doctor => screens::doctor::render(frame, &app.doctor, app.language),
             Screen::Help => screens::help::render(frame, &app.help, app.language),
             Screen::Placeholder => {
@@ -455,13 +459,18 @@ fn handle_key_serve(app: &mut App, ctx: &Context, code: KeyCode) -> Result<(), C
         KeyCode::Up => menu_prev(&mut app.serve.menu, len),
         KeyCode::Down => menu_next(&mut app.serve.menu, len),
         KeyCode::Enter => {
-            let idx = app.serve.menu.selected().expect("serve selection must be set");
+            let idx = app
+                .serve
+                .menu
+                .selected()
+                .expect("serve selection must be set");
             let action = list_actions[idx.min(len - 1)];
 
             match action {
                 ServeAction::StartForeground => {
                     let started = tokio::task::block_in_place(|| {
-                        tokio::runtime::Handle::current().block_on(crate::server_runtime::start_server(ctx))
+                        tokio::runtime::Handle::current()
+                            .block_on(crate::server_runtime::start_server(ctx))
                     });
 
                     match started {
@@ -676,36 +685,34 @@ fn handle_key_onboard(app: &mut App, ctx: &Context, code: KeyCode) -> Result<(),
                     };
                 }
             }
-            KeyCode::Enter => {
-                match state.service_mode {
-                    onboard::ServiceMode::SystemdUser => {
-                        if let Some(server) = app.server.take() {
-                            server.shutdown();
-                        }
-                        match crate::systemd::install_enable_now_user_service(ctx) {
-                            Ok(_path) => state.next_step(),
-                            Err(e) => state.error = Some(e.to_string()),
-                        }
+            KeyCode::Enter => match state.service_mode {
+                onboard::ServiceMode::SystemdUser => {
+                    if let Some(server) = app.server.take() {
+                        server.shutdown();
                     }
-                    onboard::ServiceMode::Foreground => {
-                        if app.server.is_none() {
-                            let started = tokio::task::block_in_place(|| {
-                                tokio::runtime::Handle::current()
-                                    .block_on(crate::server_runtime::start_server(ctx))
-                            });
-                            match started {
-                                Ok(server) => {
-                                    app.server = Some(server);
-                                    state.next_step();
-                                }
-                                Err(e) => state.error = Some(e.to_string()),
-                            }
-                        } else {
-                            state.next_step();
-                        }
+                    match crate::systemd::install_enable_now_user_service(ctx) {
+                        Ok(_path) => state.next_step(),
+                        Err(e) => state.error = Some(e.to_string()),
                     }
                 }
-            }
+                onboard::ServiceMode::Foreground => {
+                    if app.server.is_none() {
+                        let started = tokio::task::block_in_place(|| {
+                            tokio::runtime::Handle::current()
+                                .block_on(crate::server_runtime::start_server(ctx))
+                        });
+                        match started {
+                            Ok(server) => {
+                                app.server = Some(server);
+                                state.next_step();
+                            }
+                            Err(e) => state.error = Some(e.to_string()),
+                        }
+                    } else {
+                        state.next_step();
+                    }
+                }
+            },
             KeyCode::Esc => state.prev_step(),
             _ => {}
         },

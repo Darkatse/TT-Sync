@@ -17,6 +17,11 @@ pub fn sync_folder_display(ctx: &Context, lang: UiLanguage) -> String {
     }
     match config::load_config(&ctx.config_path) {
         Ok(cfg) => cfg.workspace_path.display().to_string(),
-        Err(_) => tr(lang, "读取失败（运行 Doctor 查看）", "load failed (run Doctor)").to_owned(),
+        Err(_) => tr(
+            lang,
+            "读取失败（运行 Doctor 查看）",
+            "load failed (run Doctor)",
+        )
+        .to_owned(),
     }
 }

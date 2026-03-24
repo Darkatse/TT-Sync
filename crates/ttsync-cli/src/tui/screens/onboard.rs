@@ -16,7 +16,13 @@ pub fn render(frame: &mut Frame, ctx: &Context, state: &mut State) {
 
     render_header(frame, header, state.language, state.step);
     render_body(frame, ctx, body, state);
-    render_footer(frame, footer, state.language, state.step, state.workspace_phase);
+    render_footer(
+        frame,
+        footer,
+        state.language,
+        state.step,
+        state.workspace_phase,
+    );
 }
 
 fn render_header(frame: &mut Frame, area: ratatui::prelude::Rect, lang: UiLanguage, step: Step) {
@@ -35,9 +41,13 @@ fn render_header(frame: &mut Frame, area: ratatui::prelude::Rect, lang: UiLangua
     let total = 10;
     let bar: String = (1..=total)
         .map(|i| {
-            if i == step_num { '●' }
-            else if i < step_num { '━' }
-            else { '─' }
+            if i == step_num {
+                '●'
+            } else if i < step_num {
+                '━'
+            } else {
+                '─'
+            }
         })
         .collect();
 
@@ -45,17 +55,11 @@ fn render_header(frame: &mut Frame, area: ratatui::prelude::Rect, lang: UiLangua
         frame,
         area,
         vec![
-            Span::styled(
-                tr(lang, "Onboard（引导设置）", "Onboard"),
-                theme::title(),
-            ),
+            Span::styled(tr(lang, "Onboard（引导设置）", "Onboard"), theme::title()),
             Span::raw("  "),
             Span::styled(bar, theme::selected()),
             Span::raw("  "),
-            Span::styled(
-                format!("{}/{}", step_num, total),
-                theme::hint(),
-            ),
+            Span::styled(format!("{}/{}", step_num, total), theme::hint()),
         ],
     );
 }
@@ -408,7 +412,10 @@ fn render_step_workspace(
             ]));
             info.push(Line::from(vec![
                 Span::styled("✓ ", theme::success()),
-                Span::raw(format!("default user   : {}", m.default_user_root.display())),
+                Span::raw(format!(
+                    "default user   : {}",
+                    m.default_user_root.display()
+                )),
             ]));
             info.push(Line::from(vec![
                 Span::styled("✓ ", theme::success()),
@@ -460,9 +467,17 @@ fn render_step_pair_now(frame: &mut Frame, area: ratatui::prelude::Rect, state: 
         .areas(area);
 
     let yes = if state.pair_now {
-        tr(state.language, "● 现在配对（推荐）", "● Pair now (recommended)")
+        tr(
+            state.language,
+            "● 现在配对（推荐）",
+            "● Pair now (recommended)",
+        )
     } else {
-        tr(state.language, "○ 现在配对（推荐）", "○ Pair now (recommended)")
+        tr(
+            state.language,
+            "○ 现在配对（推荐）",
+            "○ Pair now (recommended)",
+        )
     };
     let no = if state.pair_now {
         tr(state.language, "○ 稍后再说", "○ Not now")
@@ -545,8 +560,16 @@ fn render_step_service_mode(
     let is_linux = cfg!(target_os = "linux");
 
     let (a, b) = if is_linux {
-        let systemd_dot = if state.service_mode == ServiceMode::SystemdUser { "●" } else { "○" };
-        let fg_dot = if state.service_mode == ServiceMode::Foreground { "●" } else { "○" };
+        let systemd_dot = if state.service_mode == ServiceMode::SystemdUser {
+            "●"
+        } else {
+            "○"
+        };
+        let fg_dot = if state.service_mode == ServiceMode::Foreground {
+            "●"
+        } else {
+            "○"
+        };
         (
             format!(
                 "{systemd_dot} {}",
@@ -670,7 +693,11 @@ fn render_step_done(frame: &mut Frame, ctx: &Context, area: ratatui::prelude::Re
 
     let mode = match state.service_mode {
         ServiceMode::Foreground => tr(state.language, "本进程运行", "In-process"),
-        ServiceMode::SystemdUser => tr(state.language, "systemd user service", "systemd user service"),
+        ServiceMode::SystemdUser => tr(
+            state.language,
+            "systemd user service",
+            "systemd user service",
+        ),
     };
 
     let body = vec![

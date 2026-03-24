@@ -76,7 +76,11 @@ fn render_table(
             "{}{}{}",
             if p.permissions.read { "R" } else { "-" },
             if p.permissions.write { "W" } else { "-" },
-            if p.permissions.mirror_delete { "D" } else { "-" },
+            if p.permissions.mirror_delete {
+                "D"
+            } else {
+                "-"
+            },
         );
 
         let last_sync = p
@@ -132,7 +136,11 @@ fn render_detail(
             "{}{}{}",
             if peer.permissions.read { "R" } else { "-" },
             if peer.permissions.write { "W" } else { "-" },
-            if peer.permissions.mirror_delete { "D" } else { "-" },
+            if peer.permissions.mirror_delete {
+                "D"
+            } else {
+                "-"
+            },
         );
 
         lines.push(Line::from(""));
@@ -250,7 +258,11 @@ fn render_overlay(frame: &mut Frame, state: &mut State, lang: UiLanguage) {
                 .iter()
                 .enumerate()
                 .map(|(i, label)| {
-                    let dot = if menu.selected() == Some(i) { "●" } else { "○" };
+                    let dot = if menu.selected() == Some(i) {
+                        "●"
+                    } else {
+                        "○"
+                    };
                     ListItem::new(format!("{dot} {label}"))
                 })
                 .collect();
@@ -304,11 +316,7 @@ fn render_overlay(frame: &mut Frame, state: &mut State, lang: UiLanguage) {
                     tr(lang, "设备", "Device"),
                     device_id.as_str()
                 )),
-                Line::from(format!(
-                    "{}: {}",
-                    tr(lang, "原名称", "Old name"),
-                    old
-                )),
+                Line::from(format!("{}: {}", tr(lang, "原名称", "Old name"), old)),
                 Line::from(tr(
                     lang,
                     "仅影响本机显示名；不影响授权/同步。",
@@ -319,11 +327,7 @@ fn render_overlay(frame: &mut Frame, state: &mut State, lang: UiLanguage) {
                     "保存时会去除首尾空白（自动 trim）。",
                     "Leading/trailing spaces are trimmed on save.",
                 )),
-                Line::from(tr(
-                    lang,
-                    "Enter 保存  Esc 取消",
-                    "Enter save  Esc cancel",
-                )),
+                Line::from(tr(lang, "Enter 保存  Esc 取消", "Enter save  Esc cancel")),
             ])
             .block(
                 Block::default()
@@ -340,7 +344,11 @@ fn render_overlay(frame: &mut Frame, state: &mut State, lang: UiLanguage) {
                 .iter()
                 .enumerate()
                 .map(|(i, preset)| {
-                    let dot = if menu.selected() == Some(i) { "●" } else { "○" };
+                    let dot = if menu.selected() == Some(i) {
+                        "●"
+                    } else {
+                        "○"
+                    };
                     ListItem::new(format!("{dot} {}", preset.title(lang)))
                 })
                 .collect();
@@ -398,7 +406,11 @@ fn render_overlay(frame: &mut Frame, state: &mut State, lang: UiLanguage) {
                 .iter()
                 .enumerate()
                 .map(|(i, label)| {
-                    let dot = if menu.selected() == Some(i) { "●" } else { "○" };
+                    let dot = if menu.selected() == Some(i) {
+                        "●"
+                    } else {
+                        "○"
+                    };
                     ListItem::new(format!("{dot} {label}"))
                 })
                 .collect();

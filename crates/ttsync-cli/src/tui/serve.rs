@@ -24,7 +24,9 @@ impl ServeAction {
             (config::UiLanguage::En, ServeAction::InstallSystemdUser) => {
                 "Install systemd user service (enable --now)"
             }
-            (config::UiLanguage::ZhCn, ServeAction::StartSystemdUser) => "启动 systemd user service",
+            (config::UiLanguage::ZhCn, ServeAction::StartSystemdUser) => {
+                "启动 systemd user service"
+            }
             (config::UiLanguage::En, ServeAction::StartSystemdUser) => "Start systemd user service",
             (config::UiLanguage::ZhCn, ServeAction::StopSystemdUser) => "停止 systemd user service",
             (config::UiLanguage::En, ServeAction::StopSystemdUser) => "Stop systemd user service",
@@ -68,4 +70,3 @@ pub fn actions(server_running: bool) -> Vec<ServeAction> {
 
     out
 }
-

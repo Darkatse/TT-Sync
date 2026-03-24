@@ -23,9 +23,7 @@ pub fn title() -> Style {
 }
 
 pub fn selected() -> Style {
-    Style::default()
-        .fg(ACCENT)
-        .add_modifier(Modifier::BOLD)
+    Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)
 }
 
 pub fn hint() -> Style {
@@ -33,9 +31,7 @@ pub fn hint() -> Style {
 }
 
 pub fn error() -> Style {
-    Style::default()
-        .fg(ERROR)
-        .add_modifier(Modifier::BOLD)
+    Style::default().fg(ERROR).add_modifier(Modifier::BOLD)
 }
 
 pub fn success() -> Style {

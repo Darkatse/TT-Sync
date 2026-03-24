@@ -32,9 +32,9 @@ pub struct WorkspaceMounts {
 impl WorkspaceMounts {
     pub fn derive(mode: LayoutMode, workspace_path: &Path) -> Result<Self, SyncError> {
         match mode {
-            LayoutMode::TauriTavern => derive_TauriTavern_mounts(workspace_path),
-            LayoutMode::SillyTavern => derive_SillyTavern_mounts(workspace_path),
-            LayoutMode::SillyTavernDocker => derive_SillyTavern_docker_mounts(workspace_path),
+            LayoutMode::TauriTavern => derive_tauri_tavern_mounts(workspace_path),
+            LayoutMode::SillyTavern => derive_silly_tavern_mounts(workspace_path),
+            LayoutMode::SillyTavernDocker => derive_silly_tavern_docker_mounts(workspace_path),
         }
     }
 }
@@ -58,7 +58,7 @@ pub fn resolve_to_local(mounts: &WorkspaceMounts, sync_path: &SyncPath) -> PathB
     join_segments(&mounts.data_root, value)
 }
 
-fn derive_TauriTavern_mounts(workspace_path: &Path) -> Result<WorkspaceMounts, SyncError> {
+fn derive_tauri_tavern_mounts(workspace_path: &Path) -> Result<WorkspaceMounts, SyncError> {
     if workspace_path.file_name() == Some(OsStr::new("default-user")) {
         let data_root = workspace_path
             .parent()
@@ -80,7 +80,7 @@ fn derive_TauriTavern_mounts(workspace_path: &Path) -> Result<WorkspaceMounts, S
     }
 }
 
-fn derive_SillyTavern_mounts(workspace_path: &Path) -> Result<WorkspaceMounts, SyncError> {
+fn derive_silly_tavern_mounts(workspace_path: &Path) -> Result<WorkspaceMounts, SyncError> {
     let (repo_root, data_root, default_user_root) =
         if workspace_path.file_name() == Some(OsStr::new("default-user")) {
             let data_root = workspace_path
@@ -122,7 +122,7 @@ fn derive_SillyTavern_mounts(workspace_path: &Path) -> Result<WorkspaceMounts, S
     })
 }
 
-fn derive_SillyTavern_docker_mounts(workspace_path: &Path) -> Result<WorkspaceMounts, SyncError> {
+fn derive_silly_tavern_docker_mounts(workspace_path: &Path) -> Result<WorkspaceMounts, SyncError> {
     let (docker_root, data_root, default_user_root) =
         if workspace_path.file_name() == Some(OsStr::new("default-user")) {
             let data_root = workspace_path
@@ -173,7 +173,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn derives_TauriTavern_mounts_from_data_root() {
+    fn derives_tauri_tavern_mounts_from_data_root() {
         let workspace = Path::new("data");
         let mounts = WorkspaceMounts::derive(LayoutMode::TauriTavern, workspace).unwrap();
         assert_eq!(mounts.data_root, PathBuf::from("data"));
@@ -188,7 +188,7 @@ mod tests {
     }
 
     #[test]
-    fn derives_TauriTavern_mounts_from_default_user_root() {
+    fn derives_tauri_tavern_mounts_from_default_user_root() {
         let workspace = Path::new("data").join("default-user");
         let mounts = WorkspaceMounts::derive(LayoutMode::TauriTavern, &workspace).unwrap();
         assert_eq!(mounts.data_root, PathBuf::from("data"));
@@ -203,7 +203,7 @@ mod tests {
     }
 
     #[test]
-    fn derives_SillyTavern_mounts_from_repo_root() {
+    fn derives_silly_tavern_mounts_from_repo_root() {
         let mounts = WorkspaceMounts::derive(LayoutMode::SillyTavern, Path::new("repo")).unwrap();
         assert_eq!(mounts.data_root, PathBuf::from("repo").join("data"));
         assert_eq!(
@@ -221,7 +221,7 @@ mod tests {
     }
 
     #[test]
-    fn derives_SillyTavern_docker_mounts_from_data_root() {
+    fn derives_silly_tavern_docker_mounts_from_data_root() {
         let mounts =
             WorkspaceMounts::derive(LayoutMode::SillyTavernDocker, Path::new("repo/data")).unwrap();
         assert_eq!(mounts.data_root, PathBuf::from("repo/data"));

@@ -5,9 +5,9 @@ use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Wrap};
 
 use crate::Context;
 use crate::config::UiLanguage;
+use crate::server_runtime::RunningServer;
 use crate::tui::i18n::tr;
 use crate::tui::layout as lay;
-use crate::server_runtime::RunningServer;
 use crate::tui::serve::{State, actions};
 use crate::tui::theme;
 
@@ -31,14 +31,15 @@ pub fn render(
         frame,
         header,
         vec![
-            Span::styled(
-                tr(lang, "服务管理（Serve）", "Serve"),
-                theme::title(),
-            ),
+            Span::styled(tr(lang, "服务管理（Serve）", "Serve"), theme::title()),
             Span::raw("  │  "),
             Span::styled(
                 status,
-                if server_running { theme::success() } else { theme::warning() },
+                if server_running {
+                    theme::success()
+                } else {
+                    theme::warning()
+                },
             ),
         ],
     );
@@ -70,7 +71,11 @@ fn render_actions(
     server_running: bool,
 ) {
     let list_actions = actions(server_running);
-    let selected = state.menu.selected().unwrap_or(0).min(list_actions.len().saturating_sub(1));
+    let selected = state
+        .menu
+        .selected()
+        .unwrap_or(0)
+        .min(list_actions.len().saturating_sub(1));
     state.menu.select(Some(selected));
 
     let items: Vec<ListItem> = list_actions
