@@ -18,7 +18,9 @@ pub fn render(
     lang: UiLanguage,
     server: Option<&RunningServer>,
 ) {
-    let server_running = server.is_some();
+    let foreground_running = server.is_some();
+    let systemd_active = state.systemd_active;
+    let server_running = foreground_running || systemd_active.unwrap_or(false);
     let [header, body, footer] = lay::page(frame.area());
 
     let status = if server_running {
@@ -49,7 +51,7 @@ pub fn render(
         .constraints([Constraint::Percentage(45), Constraint::Percentage(55)])
         .areas(body);
 
-    render_actions(frame, left, state, lang, server_running);
+    render_actions(frame, left, state, lang, foreground_running);
     render_info(frame, right, ctx, state, lang, server_running, server);
 
     lay::render_hint_bar(
@@ -68,9 +70,9 @@ fn render_actions(
     area: ratatui::prelude::Rect,
     state: &mut State,
     lang: UiLanguage,
-    server_running: bool,
+    foreground_running: bool,
 ) {
-    let list_actions = actions(server_running);
+    let list_actions = actions(foreground_running, state.systemd_active);
     let selected = state
         .menu
         .selected()
@@ -163,6 +165,11 @@ fn render_info(
     if cfg!(target_os = "linux") {
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled("systemd", theme::title())));
+        lines.push(Line::from(match state.systemd_active {
+            Some(true) => tr(lang, "状态: active", "status: active"),
+            Some(false) => tr(lang, "状态: inactive", "status: inactive"),
+            None => tr(lang, "状态: unknown", "status: unknown"),
+        }));
         lines.push(Line::from(tr(
             lang,
             "安装后可用 `systemctl --user status tt-sync.service` 查看状态。",

@@ -24,6 +24,23 @@ pub fn stop_user_service() -> Result<(), CliError> {
 }
 
 #[cfg(target_os = "linux")]
+pub fn is_user_service_active() -> Result<bool, CliError> {
+    let out = systemctl_output(&["--user", "is-active", USER_SERVICE_UNIT])?;
+    let state = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+
+    match state.as_str() {
+        "active" => Ok(true),
+        "inactive" | "failed" | "activating" | "deactivating" | "unknown" => Ok(false),
+        _ => Err(CliError::Io(format!(
+            "systemctl is-active returned unexpected output ({}): {}\n{}",
+            out.status,
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr),
+        ))),
+    }
+}
+
+#[cfg(target_os = "linux")]
 fn install_user_service_file(ctx: &Context) -> Result<PathBuf, CliError> {
     let exe = std::env::current_exe().map_err(|e| CliError::Io(e.to_string()))?;
     let systemd_dir = dirs::config_dir()
@@ -59,13 +76,18 @@ fn systemd_quote(s: &str) -> String {
 }
 
 #[cfg(target_os = "linux")]
-fn systemctl(args: &[&str]) -> Result<(), CliError> {
+fn systemctl_output(args: &[&str]) -> Result<std::process::Output, CliError> {
     use std::process::Command;
 
-    let out = Command::new("systemctl")
+    Command::new("systemctl")
         .args(args)
         .output()
-        .map_err(|e| CliError::Io(e.to_string()))?;
+        .map_err(|e| CliError::Io(e.to_string()))
+}
+
+#[cfg(target_os = "linux")]
+fn systemctl(args: &[&str]) -> Result<(), CliError> {
+    let out = systemctl_output(args)?;
 
     if out.status.success() {
         return Ok(());
@@ -95,6 +117,13 @@ pub fn start_user_service() -> Result<(), CliError> {
 
 #[cfg(not(target_os = "linux"))]
 pub fn stop_user_service() -> Result<(), CliError> {
+    Err(CliError::Config(format!(
+        "systemd user services ({USER_SERVICE_UNIT}) are only supported on Linux"
+    )))
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn is_user_service_active() -> Result<bool, CliError> {
     Err(CliError::Config(format!(
         "systemd user services ({USER_SERVICE_UNIT}) are only supported on Linux"
     )))
