@@ -42,11 +42,25 @@
 
 ## 安装
 
+### 一键安装
+
+只需要Ctrl+C, Ctrl+V, Easy!：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Darkatse/TT-Sync/main/scripts/install.sh | sh
+```
+
+Windows PowerShell：
+
+```powershell
+iex ((iwr https://raw.githubusercontent.com/Darkatse/TT-Sync/main/scripts/install.ps1).Content)
+```
+
 ### 直接下载二进制
 
 从 [Releases](https://github.com/Darkatse/TT-Sync/releases) 下载预编译二进制，放到你的 `$PATH` 中即可。
 
-Docker / NAS / VPS 部署说明请见：[Docker 指南](./docs/Docker.md)
+Docker / NAS / VPS 部署说明请见：[Docker 指南](./README.md#docker-一把梭)
 
 ### 从源码编译
 
@@ -66,16 +80,56 @@ Windows 下为 `tt-sync.exe`。
 
 ---
 
+## 给爱折腾的你
+
+如果你想用Nightly版本，请用下面的命令：
+
+Nightly：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Darkatse/TT-Sync/main/scripts/install.sh | sh -s -- --nightly
+```
+
+```powershell
+& ([scriptblock]::Create((iwr https://raw.githubusercontent.com/Darkatse/TT-Sync/main/scripts/install.ps1).Content)) -Nightly
+```
+
+指定版本：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Darkatse/TT-Sync/main/scripts/install.sh | sh -s -- --version 0.1.0
+```
+
+```powershell
+& ([scriptblock]::Create((iwr https://raw.githubusercontent.com/Darkatse/TT-Sync/main/scripts/install.ps1).Content)) -Version 0.1.0
+```
+
+自定义安装目录：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Darkatse/TT-Sync/main/scripts/install.sh | sh -s -- --dir "$HOME/.local/bin"
+```
+
+```powershell
+& ([scriptblock]::Create((iwr https://raw.githubusercontent.com/Darkatse/TT-Sync/main/scripts/install.ps1).Content)) -InstallDir "$HOME\\bin"
+```
+
+默认安装位置：
+- Linux / macOS：优先可写的 `/usr/local/bin`，否则退到 `~/.local/bin`
+- Windows：`%LocalAppData%\\TT-Sync\\bin`，并自动写进当前用户的 `PATH`
+
+---
+
 ## Docker 一把梭
 
-如果你准备把 TT-Sync 塞进容器里，让小鲸鱼替你守门，仓库里现在已经自带：
+如果你准备把 TT-Sync 塞进容器里，拥抱容器化技术，仓库里现在已经自带：
 
 - `Dockerfile`
 - `docker-compose.yaml`
 - `.env.example`
 - `config.toml.example`
 
-最短路径如下：
+简单示例如下：
 
 ```bash
 cp .env.example .env

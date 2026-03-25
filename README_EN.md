@@ -42,6 +42,22 @@ Built with **Rust** 🦀, TT-Sync provides:
 
 ## Installation
 
+### One-Line Install
+
+Copy, paste, and let the little sync goblin do the rest:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Darkatse/TT-Sync/main/scripts/install.sh | sh
+```
+
+Windows PowerShell:
+
+```powershell
+iex ((iwr https://raw.githubusercontent.com/Darkatse/TT-Sync/main/scripts/install.ps1).Content)
+```
+
+The installer prefers the latest stable release. If you show up before the stable one exists, it quietly grabs `nightly` instead. 
+
 ### Download a Binary
 
 Download a prebuilt binary from [Releases](https://github.com/Darkatse/TT-Sync/releases) and put it somewhere in your `$PATH`.
@@ -63,6 +79,46 @@ target/release/tt-sync
 ```
 
 On Windows, use `tt-sync.exe`.
+
+---
+
+## For The Tinkerers
+
+If you want the nightly build, a pinned version, or your own carefully curated install directory, here is the slightly nerdier menu:
+
+Nightly:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Darkatse/TT-Sync/main/scripts/install.sh | sh -s -- --nightly
+```
+
+```powershell
+& ([scriptblock]::Create((iwr https://raw.githubusercontent.com/Darkatse/TT-Sync/main/scripts/install.ps1).Content)) -Nightly
+```
+
+Pin a version:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Darkatse/TT-Sync/main/scripts/install.sh | sh -s -- --version 0.1.0
+```
+
+```powershell
+& ([scriptblock]::Create((iwr https://raw.githubusercontent.com/Darkatse/TT-Sync/main/scripts/install.ps1).Content)) -Version 0.1.0
+```
+
+Choose your own install directory:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Darkatse/TT-Sync/main/scripts/install.sh | sh -s -- --dir "$HOME/.local/bin"
+```
+
+```powershell
+& ([scriptblock]::Create((iwr https://raw.githubusercontent.com/Darkatse/TT-Sync/main/scripts/install.ps1).Content)) -InstallDir "$HOME\\bin"
+```
+
+Default install paths:
+- Linux / macOS: writable `/usr/local/bin` when possible, otherwise `~/.local/bin`
+- Windows: `%LocalAppData%\TT-Sync\bin`, and the script adds it to the user `PATH`
 
 ---
 

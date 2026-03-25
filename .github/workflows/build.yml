@@ -3,6 +3,8 @@ name: Build and Release
 on:
   push:
     branches: [main]
+    tags:
+      - "v*"
   workflow_dispatch:
 
 env:
@@ -10,9 +12,6 @@ env:
   BINARY_NAME: tt-sync
 
 jobs:
-  # ─────────────────────────────────────────────────────────────
-  # Linux x86_64 (native)
-  # ─────────────────────────────────────────────────────────────
   build-linux-x64:
     runs-on: ubuntu-latest
     steps:
@@ -25,7 +24,7 @@ jobs:
         run: cargo build --release
 
       - name: Run tests
-        run: cargo test
+        run: cargo test --locked
 
       - name: Package
         run: |
@@ -39,9 +38,6 @@ jobs:
           name: ${{ env.BINARY_NAME }}-linux-x64
           path: dist/${{ env.BINARY_NAME }}-linux-x64
 
-  # ─────────────────────────────────────────────────────────────
-  # Linux ARM64 (native - GitHub hosted ARM runner)
-  # ─────────────────────────────────────────────────────────────
   build-linux-arm64:
     runs-on: ubuntu-24.04-arm
     steps:
@@ -65,9 +61,6 @@ jobs:
           name: ${{ env.BINARY_NAME }}-linux-arm64
           path: dist/${{ env.BINARY_NAME }}-linux-arm64
 
-  # ─────────────────────────────────────────────────────────────
-  # Windows x86_64 (native)
-  # ─────────────────────────────────────────────────────────────
   build-windows-x64:
     runs-on: windows-latest
     steps:
@@ -90,9 +83,6 @@ jobs:
           name: ${{ env.BINARY_NAME }}-windows-x64
           path: dist/${{ env.BINARY_NAME }}-windows-x64.exe
 
-  # ─────────────────────────────────────────────────────────────
-  # macOS x86_64 (Intel)
-  # ─────────────────────────────────────────────────────────────
   build-macos-x64:
     runs-on: macos-15
     steps:
@@ -116,9 +106,6 @@ jobs:
           name: ${{ env.BINARY_NAME }}-macos-x64
           path: dist/${{ env.BINARY_NAME }}-macos-x64
 
-  # ─────────────────────────────────────────────────────────────
-  # macOS ARM64 (Apple Silicon)
-  # ─────────────────────────────────────────────────────────────
   build-macos-arm64:
     runs-on: macos-latest
     steps:
@@ -142,10 +129,8 @@ jobs:
           name: ${{ env.BINARY_NAME }}-macos-arm64
           path: dist/${{ env.BINARY_NAME }}-macos-arm64
 
-  # ─────────────────────────────────────────────────────────────
-  # Create/Update Pre-release
-  # ─────────────────────────────────────────────────────────────
   release:
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
     needs:
       - build-linux-x64
       - build-linux-arm64
@@ -167,6 +152,10 @@ jobs:
         run: |
           mkdir -p release
           find artifacts -type f -exec cp {} release/ \;
+          (
+            cd release
+            sha256sum * > SHA256SUMS.txt
+          )
           ls -la release/
 
       - name: Get version from Cargo.toml
@@ -174,23 +163,27 @@ jobs:
         run: |
           VERSION=$(grep '^version' crates/ttsync-cli/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Version: $VERSION"
 
       - name: Get short SHA
         id: sha
         run: echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
-      - name: Create or update pre-release
+      - name: Get build timestamp
+        id: built_at
+        run: echo "value=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
+
+      - name: Publish nightly pre-release
+        if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: nightly
-          name: "Nightly Build v${{ steps.version.outputs.version }} (${{ steps.sha.outputs.sha }})"
+          name: Nightly Build v${{ steps.version.outputs.version }} (${{ steps.sha.outputs.sha }})
           body: |
             ## Nightly Build
 
             **Version:** ${{ steps.version.outputs.version }}
             **Commit:** ${{ github.sha }}
-            **Built:** ${{ github.event.head_commit.timestamp }}
+            **Built:** ${{ steps.built_at.outputs.value }}
 
             ### Downloads
 
@@ -202,18 +195,68 @@ jobs:
             | macOS | x86_64 (Intel) | `tt-sync-macos-x64` |
             | macOS | ARM64 (Apple Silicon) | `tt-sync-macos-arm64` |
 
-            ### Usage
+            ### Install
 
+            Linux / macOS:
             ```bash
-            chmod +x tt-sync-linux-x64
-            ./tt-sync-linux-x64 init --data-root ./data --public-url https://your-server:8443
-            ./tt-sync-linux-x64 serve
+            curl -fsSL https://raw.githubusercontent.com/Darkatse/TT-Sync/main/scripts/install.sh | sh -s -- --nightly
             ```
 
-            ### Note
-            This is an automated pre-release build from the `main` branch.
-            For stable releases, please check the tagged releases.
+            Windows PowerShell:
+            ```powershell
+            & ([scriptblock]::Create((iwr https://raw.githubusercontent.com/Darkatse/TT-Sync/main/scripts/install.ps1).Content)) -Nightly
+            ```
+
+            ### Integrity
+
+            `SHA256SUMS.txt` is attached to this release and used by the install scripts for checksum verification.
           prerelease: true
+          overwrite_files: true
+          files: release/*
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish stable release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: TT-Sync ${{ github.ref_name }}
+          body: |
+            ## TT-Sync ${{ github.ref_name }}
+
+            **Version:** ${{ steps.version.outputs.version }}
+            **Commit:** ${{ github.sha }}
+            **Built:** ${{ steps.built_at.outputs.value }}
+
+            ### Downloads
+
+            | Platform | Architecture | File |
+            |----------|--------------|------|
+            | Linux | x86_64 | `tt-sync-linux-x64` |
+            | Linux | ARM64 | `tt-sync-linux-arm64` |
+            | Windows | x86_64 | `tt-sync-windows-x64.exe` |
+            | macOS | x86_64 (Intel) | `tt-sync-macos-x64` |
+            | macOS | ARM64 (Apple Silicon) | `tt-sync-macos-arm64` |
+
+            ### Install
+
+            Linux / macOS:
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/Darkatse/TT-Sync/main/scripts/install.sh | sh
+            ```
+
+            Windows PowerShell:
+            ```powershell
+            iex ((iwr https://raw.githubusercontent.com/Darkatse/TT-Sync/main/scripts/install.ps1).Content)
+            ```
+
+            ### Integrity
+
+            `SHA256SUMS.txt` is attached to this release and used by the install scripts for checksum verification.
+          prerelease: false
+          overwrite_files: true
           files: release/*
           fail_on_unmatched_files: false
         env:
