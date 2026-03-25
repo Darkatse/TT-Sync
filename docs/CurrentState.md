@@ -77,6 +77,7 @@ This document is a snapshot of what is **implemented** and what is **still pendi
 |---------|--------|-------|
 | `tt-sync init` | ✅ | Creates state dir, config.toml, identity.json, TLS cert+key. Validates workspace path exists. Prints derived mount points. Rejects re-init. |
 | `tt-sync serve` | ✅ | Loads config, derives mount points, starts TLS HTTPS server via `ttsync-http::spawn_server()`, prints server banner, Ctrl+C graceful shutdown. |
+| `tt-sync background-serve` | ✅ (internal) | Windows-only hidden background entrypoint for Task Scheduler. Reuses the same server runtime and hides the console window after successful startup. |
 | `tt-sync pair open` | ✅ | Generates one-time token + pair URI via `ttsync-core::pairing`, and persists the token into a file-based token store so a running server can consume it. Supports `--json`, `--ro`, `--mirror`, `--expires`. |
 | `tt-sync peers list` | ✅ | Reads `JsonPeerStore`, displays formatted table (`comfy-table`). Supports `--json`. |
 | `tt-sync peers revoke` | ✅ | Matches by device ID, prefix, or name (case-insensitive). |
@@ -97,20 +98,20 @@ This document is a snapshot of what is **implemented** and what is **still pendi
 - `tt-sync onboard` runs a guided flow (implemented so far):
   - Language → listen port → public URL → layout mode → workspace detection/confirm → pair-now decision.
   - Pairing screen (optional): QR/link + live peers list + per-device permission confirmation, then “pair more / next step”.
-  - Service mode: user-scope service manager (Linux `systemd --user`, macOS `LaunchAgent`) or in-process foreground server, then a final summary screen.
+  - Service mode: user-scope service manager (Linux `systemd --user`, macOS `LaunchAgent`, Windows `Task Scheduler` beta) or in-process foreground server, then a final summary screen.
 - Main menu screens implemented:
   - **Pairing**: generates QR/link, live peer list, per-device permission confirmation after pairing.
   - **Peers**: list paired devices, edit permissions, revoke peers.
-  - **Serve**: start/stop the server in-process; on Linux, install/enable/start/stop a `systemd --user` service; on macOS, register/bootstrap/bootout a `LaunchAgent`.
+  - **Serve**: start/stop the server in-process; on Linux, install/enable/start/stop a `systemd --user` service; on macOS, register/bootstrap/bootout a `LaunchAgent`; on Windows, register/start/stop/query a per-user `Task Scheduler` task that launches the hidden `background-serve` entrypoint (**beta**).
 
 ## Pending / Next Milestones
 
 - `ttsync-cli`:
-  - TUI onboarding flow: finish the final summary/exit polishing and add Windows Task Scheduler support for user-scope auto-start.
+  - TUI onboarding flow: finish the final summary/exit polishing.
 - Cross-platform service management:
   - Strategy is documented in `docs/ServiceManagement.md`.
   - Current scope is explicitly **user-scope only**: Linux `systemd --user`, macOS `LaunchAgent`, Windows Task Scheduler.
-  - macOS `LaunchAgent` is implemented; Windows Task Scheduler remains pending.
+  - Linux `systemd --user`, macOS `LaunchAgent`, and Windows `Task Scheduler` (**beta**) are implemented.
 - TauriTavern integration:
   - Client-side manifest scan + plan apply orchestration (pull/push loops) and progress events.
 - Tests:

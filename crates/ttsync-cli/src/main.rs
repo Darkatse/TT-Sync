@@ -6,6 +6,8 @@ mod server_runtime;
 mod systemd;
 mod tui;
 mod user_service;
+mod windows_background;
+mod windows_task_scheduler;
 
 use std::path::PathBuf;
 

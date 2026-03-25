@@ -52,6 +52,10 @@ pub enum Command {
     /// Start the synchronization server.
     Serve,
 
+    /// Windows-only hidden background server entrypoint.
+    #[command(hide = true)]
+    BackgroundServe,
+
     /// Manage device pairing.
     Pair {
         #[command(subcommand)]
@@ -137,6 +141,7 @@ pub async fn execute(ctx: &Context, command: Command) -> Result<(), CliError> {
             listen,
         } => cmd_init(ctx, &path, &layout, &public_url, &listen),
         Command::Serve => cmd_serve(ctx).await,
+        Command::BackgroundServe => crate::windows_background::run(ctx).await,
         Command::Pair { action } => match action {
             PairAction::Open {
                 expires,

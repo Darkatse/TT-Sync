@@ -2413,6 +2413,7 @@ dependencies = [
  "ttsync-fs",
  "ttsync-http",
  "uuid",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
