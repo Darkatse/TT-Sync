@@ -4,11 +4,17 @@
   <img src="https://img.shields.io/badge/Single_Binary-Portable-green?style=for-the-badge" alt="Portable"/>
 </p>
 
-<h1 align="center">TT-Sync</h1>
+<p align="center">
+  <img src="./image/tt-sync-logo.png" alt="TT-Sync" width="1100"/>
+</p>
 
 <p align="center">
   <strong>Remote Synchronization Server for TauriTavern</strong><br/>
   <em>I wanna give my characters a bigger home!</em>
+</p>
+
+<p align="center">
+  <img src="./image/demo.gif" alt="TT-Sync TUI demo" width="1100"/>
 </p>
 
 <p align="center">
@@ -20,135 +26,117 @@
 ## Why TT-Sync?
 
 Ever found yourself:
-- Wanting to sync your TauriTavern data between home and a VPS, but LAN Sync only works locally?
-- Wishing you could keep a NAS as the canonical copy and pull from anywhere?
-- Hoping to sync with vanilla SillyTavern too?
+- Wanting to sync TauriTavern data between home and a VPS, but LAN Sync only works on the local network?
+- Wanting a NAS to act as the canonical copy you can pull from anywhere?
+- Wanting to sync with vanilla SillyTavern too?
 
-**Say hello to TT-Sync** — a standalone CLI server that brings your TauriTavern data to the public internet, securely.
+**TT-Sync** is a standalone remote sync server for exactly that problem: it takes the sync endpoint out of the LAN and onto a VPS, NAS, or home server without giving up control or security.
 
-Built with **Rust** 🦀, TT-Sync is:
-- **End-to-end encrypted** — TLS 1.3 + SPKI certificate pinning, no CA required
-- **Single binary** — drop it on any VPS, NAS, or home server, no runtime dependencies
-- **Ed25519 device identity** — every paired device is cryptographically verified
-- **Bidirectionally compatible** — works with both TauriTavern and original SillyTavern
+Built with **Rust** 🦀, TT-Sync provides:
+- **End-to-end transport trust**: TLS 1.3 with SPKI pinning, no public CA required
+- **Single-binary deployment**: suitable for VPS, NAS, containers, and home servers
+- **Ed25519 device identity**: every paired device is cryptographically verified
+- **Bidirectional compatibility**: works with both TauriTavern and vanilla SillyTavern
 
 ---
 
 ## Installation
 
-### From Source (Recommended)
+### Download a Binary
+
+Download a prebuilt binary from [Releases](https://github.com/Darkatse/TT-Sync/releases) and put it somewhere in your `$PATH`.
+
+### Build from Source
 
 ```bash
 git clone https://github.com/Darkatse/TT-Sync.git
 cd TT-Sync
 cargo build --release
-
-# Copy the binary to wherever you like!
-cp target/release/tt-sync ~/.local/bin/
 ```
 
-### Just the Binary
+The build output is:
 
-Download a pre-built binary from [Releases](https://github.com/Darkatse/TT-Sync/releases) and put it in your `$PATH`. Done.
+```bash
+target/release/tt-sync
+```
+
+On Windows, use `tt-sync.exe`.
 
 ---
 
-## Quick Start
+## Recommended Usage: TUI
 
-### 1. Initialize
+### First-Time Setup
 
-```bash
-tt-sync init \
-  --path /path/to/tauritavern/data/ \
-  --layout tauritavern \
-  --public-url https://my-vps.example.com:8443
-```
-
-This creates:
-- `config.toml` — your server configuration
-- `identity.json` — a unique device UUID + Ed25519 keypair
-- `tls/key.pem` + `tls/cert.pem` — a self-signed TLS certificate
-
-### 2. Start the Server
+For first deployment, start with:
 
 ```bash
-tt-sync serve
+tt-sync onboard
 ```
 
-You'll see a banner like this:
+The guided flow walks you through:
+- selecting language
+- setting the listen port and `Public URL`
+- choosing the `layout mode`
+- choosing the server data folder
+- optionally pairing right away
+- choosing how the server should run: foreground or user-scope service
 
-```
-  ▶ TT-Sync server running
+Supported user-scope service managers:
+- Linux: `systemd --user`
+- macOS: `LaunchAgent`
+- Windows: `Task Scheduler` (beta)
 
-  Listen       0.0.0.0:8443
-  Public URL   https://my-vps.example.com:8443
-  TLS          self-managed (SPKI pin)
-  SPKI SHA-256 dGVzdC1zcGtp...
+### Day-to-Day Operation
 
-  Press Ctrl+C to stop.
-```
-
-### 3. Pair a Client
+After initialization, the normal entrypoint is:
 
 ```bash
-# Read-only pairing (default)
-tt-sync pair open
-
-# Read+write pairing, 1 hour expiry
-tt-sync pair open --rw --expires 1h
-
-# Machine-readable output
-tt-sync pair open --json
+tt-sync
 ```
 
-Copy the `tauritavern://tt-sync/pair?...` URI into your TauriTavern client.
+The main menu currently covers:
+- `Onboard`: rerun guided setup
+- `Pair`: generate a QR code / pairing link and wait for TauriTavern
+- `Peers`: inspect, rename, edit permissions, and revoke paired devices
+- `Serve`: start/stop the foreground server or manage the user-scope service
+- `Doctor`: validate config, certificates, workspace, and pairing state
+- `Help`: show key bindings and deployment tips
 
-### 4. Manage Peers
+### Basic Keys
 
-```bash
-# List all paired devices
-tt-sync peers list
+- `↑ ↓`: move focus
+- `Enter`: confirm
+- `Esc`: go back
+- `q`: quit
 
-# Revoke a device (by ID prefix or name)
-tt-sync peers revoke "My Phone"
-```
+On the pairing screen:
+- `r`: refresh the QR code / regenerate the pairing token
 
----
+### Pairing Flow
 
-## Features at a Glance
-
-| Command | What it does |
-|---------|--------------|
-| `init` | Initialize server: config, identity, TLS cert |
-| `serve` | Start the HTTPS sync server |
-| `pair open` | Generate a one-time pairing token + URI |
-| `peers list` | Show all paired devices in a table |
-| `peers revoke` | Remove a paired device |
-| `doctor` | Validate config, TLS, workspace/mounts, identity |
-| `cert show` | Display SPKI SHA-256 fingerprint |
-| `cert rotate-leaf` | Re-sign TLS cert with same key (preserves SPKI pin) |
-
-### Global Flags
-
-| Flag | Effect |
-|------|--------|
-| `--no-color` | Disable ANSI colored output |
-| `--quiet` | Suppress non-essential output (great for scripts) |
-| `--state-dir <path>` | Override default state directory |
+The intended path is simple:
+1. Run `tt-sync onboard` on the server for first-time setup, or open `Pair` from the `tt-sync` main menu.
+2. Generate a QR code or pairing link.
+3. In TauriTavern, scan the QR code or paste the `tauritavern://tt-sync/pair?...` link.
+4. Manage permissions in `Peers` and runtime status in `Serve`.
 
 ---
 
 ## Layout Mode
 
-TT-Sync v2 uses a **single full sync dataset** (a fixed allowlist; no `compatible-minimal`).
+TT-Sync v2 uses a fixed **full sync dataset**. What you choose in practice is how the canonical wire paths map onto the server's local folder layout.
 
-What you choose is the **layout mode**: how the canonical wire paths map onto your local folder structure (most importantly, where global third-party extensions live).
-
-| `--layout` | Target folder layout | Global extensions mapping |
-|-----------|----------------------|--------------------------|
+| Option | Intended target | Global extensions mapping |
+|--------|------------------|--------------------------|
 | `tauritavern` | TauriTavern `data/` | `extensions/third-party` → `data/extensions/third-party` |
 | `sillytavern` | SillyTavern repo layout | `extensions/third-party` → `public/scripts/extensions/third-party` |
-| `sillytavern-docker` | SillyTavern docker volume layout | `extensions/third-party` → `./extensions` |
+| `sillytavern-docker` | SillyTavern Docker volume layout | `extensions/third-party` → `./extensions` |
+
+Use:
+- `tauritavern` for a TauriTavern data directory
+- `sillytavern` for a regular SillyTavern repository
+- `sillytavern-docker` for Docker volume mounts
 
 ---
 
@@ -157,64 +145,30 @@ What you choose is the **layout mode**: how the canonical wire paths map onto yo
 ```
 ┌──────────────────────────────────────────────────────────┐
 │  Layer 1: Transport Security                             │
-│  TLS 1.3 (self-signed) + SPKI certificate pinning       │
-│  → Every client pins the server's public key at pairing  │
+│  TLS 1.3 (self-signed) + SPKI pinning                    │
+│  → The client pins the server public key during pairing  │
 ├──────────────────────────────────────────────────────────┤
-│  Layer 2: Peer Identity                                  │
-│  Ed25519 keypair per device, canonical request signing   │
-│  → Session tokens issued after signature verification    │
+│  Layer 2: Device Identity                                │
+│  Ed25519 per-device keys + canonical request signing     │
+│  → Short-lived session tokens are issued after verify    │
 ├──────────────────────────────────────────────────────────┤
 │  Layer 3: Authorization                                  │
-│  Per-peer ACL: read / write / mirror-delete              │
-│  Fixed dataset allowlist restricts visible paths         │
+│  Per-device ACL: read / write / mirror-delete            │
+│  Fixed allowlist restricts visible sync paths            │
 └──────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Architecture
+## Developer Docs
 
-```
-TT-Sync/crates/
-├── ttsync-contract   # Protocol types & wire contracts (domain layer)
-├── ttsync-core       # Use-case orchestration & trait definitions (application layer)
-├── ttsync-fs         # File system adapter — scanning, atomic writes, peer store
-├── ttsync-http       # HTTPS server (axum) & client (reqwest) with SPKI pinning
-└── ttsync-cli        # CLI binary — the entry point you interact with
-```
+The README now keeps only the shortest user path. For lower-level commands, automation, and architecture details, see:
 
-Built on Clean Architecture: dependencies flow inward. The CLI depends on HTTP and FS adapters, which depend on core, which depends on contract. Contract has zero knowledge of anything else.
-
----
-
-## Packaging for Developers
-
-### Build for Your Platform
-
-```bash
-cargo build --release
-# Binary: target/release/tt-sync (or tt-sync.exe on Windows)
-```
-
-### Run Tests
-
-```bash
-cargo test
-```
-
-### GitHub Actions
-
-Every push to `main` triggers automated builds via GitHub Actions for:
-
-| Platform | Architecture | Artifact |
-|----------|--------------|----------|
-| Linux | x86_64 | `tt-sync-linux-x64` |
-| Linux | ARM64 | `tt-sync-linux-arm64` |
-| Windows | x86_64 | `tt-sync-windows-x64.exe` |
-| macOS | x86_64 (Intel) | `tt-sync-macos-x64` |
-| macOS | ARM64 (Apple Silicon) | `tt-sync-macos-arm64` |
-
-Binaries are published as a nightly pre-release on the [Releases](https://github.com/Darkatse/TT-Sync/releases) page.
+- [CLI Reference](./docs/CLI.md)
+- [Architecture](./docs/Architecture.md)
+- [Current State](./docs/CurrentState.md)
+- [Upstream Contract](./docs/UpstreamContract.md)
+- [Tech Stack](./docs/TechStack.md)
 
 ---
 
@@ -224,7 +178,7 @@ Found a bug? Want a feature? PRs welcome!
 
 ```bash
 cargo test
-cargo build
+cargo build --release
 ```
 
 ---

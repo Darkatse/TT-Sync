@@ -20,5 +20,8 @@ target
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
+# Cache files
+.cache
+
 # Upstream ignores
 TauriTavern
