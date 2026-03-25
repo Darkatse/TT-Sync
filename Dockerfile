@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM rust:1.86-alpine3.22 AS builder
+FROM rust:1.94-alpine3.23 AS builder
 
 RUN apk add --no-cache build-base cmake go musl-dev perl
 

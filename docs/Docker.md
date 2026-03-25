@@ -262,3 +262,124 @@ In practice, most Docker deployments only need these files:
 - [`.env.example`](../.env.example)
 
 Everything else is supporting documentation.
+
+## 11. Automated Docker Hub Publishing
+
+This repository now includes a GitHub Actions workflow at [`../.github/workflows/docker-publish.yml`](../.github/workflows/docker-publish.yml).
+
+Before it can publish anything, create the target repository on Docker Hub and then configure these GitHub repository settings:
+
+- **Repository variable** `DOCKERHUB_USERNAME`: your Docker Hub namespace, for example `darkatse`
+- **Repository variable** `DOCKERHUB_IMAGE`: the full image name, for example `darkatse/tt-sync`
+- **Repository secret** `DOCKERHUB_TOKEN`: a Docker Hub access token with permission to push to that repository
+
+The workflow behavior is intentionally split by stability level:
+
+- push to `main`: publishes `edge` and `sha-<commit>`
+- push tag `vX.Y.Z`: publishes `X.Y.Z`, `X.Y`, `latest`, and `X` when `X > 0`
+- `workflow_dispatch`: republishes whatever the selected ref implies
+
+That split is deliberate:
+
+- `edge` is the rolling integration image
+- semver tags are the stable contract for users
+- `latest` only moves on an explicit version tag, not on every merge to `main`
+
+The workflow also runs `cargo test --locked` before logging in and pushing, so Docker Hub only receives images from a commit that passed the Rust test suite in CI.
+
+## 12. Recommended Manual Release Path
+
+If you want a manual but still reproducible release, prefer driving the publish through GitHub Actions instead of pushing from a laptop.
+
+Stable release flow:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+That produces the same image shape as CI expects and keeps the published tags aligned with the git history.
+
+If you need to re-run a publish without making a new commit:
+
+- open the `Publish Docker Image` workflow in GitHub Actions
+- use `Run workflow`
+- select `main` to refresh `edge`, or select a `vX.Y.Z` tag to refresh the stable tags
+
+If you run `workflow_dispatch` on an arbitrary branch, the workflow will only emit the immutable `sha-<commit>` tag. That is a safety rail, not a bug.
+
+## 13. Direct Local Push To Docker Hub
+
+For emergency or offline-maintainer scenarios, you can push directly from a machine with Docker Buildx.
+
+First log in:
+
+```bash
+docker login --username <dockerhub-user>
+```
+
+If you do not already have a Buildx builder:
+
+```bash
+docker buildx create --name tt-sync-release --use --bootstrap
+```
+
+### Rolling `edge` publish
+
+```bash
+IMAGE=<dockerhub-user>/tt-sync
+SHA=$(git rev-parse --short HEAD)
+
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  -f Dockerfile \
+  -t ${IMAGE}:edge \
+  -t ${IMAGE}:sha-${SHA} \
+  --push \
+  .
+```
+
+### Stable semver publish
+
+```bash
+IMAGE=<dockerhub-user>/tt-sync
+VERSION=0.1.0
+MINOR=${VERSION%.*}
+
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  -f Dockerfile \
+  -t ${IMAGE}:${VERSION} \
+  -t ${IMAGE}:${MINOR} \
+  -t ${IMAGE}:latest \
+  --push \
+  .
+```
+
+For a `1.x.y` release, add the major tag too:
+
+```bash
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  -f Dockerfile \
+  -t ${IMAGE}:${VERSION} \
+  -t ${IMAGE}:${MINOR} \
+  -t ${IMAGE}:1 \
+  -t ${IMAGE}:latest \
+  --push \
+  .
+```
+
+That mirrors the CI tagging policy. For `0.x.y`, skip the bare major tag on purpose because `0` is not a stable compatibility promise.
+
+Verify the pushed manifest list afterward:
+
+```bash
+docker buildx imagetools inspect ${IMAGE}:${VERSION}
+```
+
+If your local machine cannot build both architectures yet:
+
+- Docker Desktop usually works out of the box
+- on Linux, you may need QEMU/binfmt configured first
+- as a fallback, publish a single architecture explicitly instead of pretending the image is multi-arch
