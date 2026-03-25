@@ -37,9 +37,12 @@ LAN Sync's current architecture (plain HTTP, HMAC shared-secret auth, "notify pe
 ### 4.1 Initialization & Configuration
 
 - `tt-sync init` — interactive/non-interactive setup: choose workspace path + layout mode, public base URL, generate cryptographic identity (Ed25519 + TLS), write `config.toml`.
-- Configuration stored in a **state directory** separate from the synced data tree.
+- Runtime state stored in a **state directory** separate from the synced data tree.
   - Default: platform-appropriate app data dir (e.g., `~/.local/state/tt-sync`, `%AppData%/TT-Sync`).
   - Overridable via `--state-dir`.
+- The config file defaults next to the executable.
+  - CLI deployments may override it via `--config-file <path>`.
+  - TUI entrypoints continue using the default config path.
 
 ### 4.2 Device Pairing
 

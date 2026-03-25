@@ -46,6 +46,8 @@ Built with **Rust** 🦀, TT-Sync provides:
 
 Download a prebuilt binary from [Releases](https://github.com/Darkatse/TT-Sync/releases) and put it somewhere in your `$PATH`.
 
+For VPS, NAS, and container deployment, see [Docker Guide](./docs/Docker.md).
+
 ### Build from Source
 
 ```bash
@@ -164,6 +166,7 @@ Use:
 
 The README now keeps only the shortest user path. For lower-level commands, automation, and architecture details, see:
 
+- [Docker Guide](./docs/Docker.md)
 - [CLI Reference](./docs/CLI.md)
 - [Architecture](./docs/Architecture.md)
 - [Current State](./docs/CurrentState.md)

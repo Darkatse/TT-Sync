@@ -306,11 +306,15 @@ sequenceDiagram
 
 ## 5. State Management
 
-### Server State Directory
+### Configuration And State Locations
+
+Default layout:
 
 ```
+<exe-dir>/
+└── config.toml           # User-editable configuration
+
 <state-dir>/
-├── config.toml           # User-editable configuration
 ├── identity.json         # Ed25519 keypair + device_id
 ├── tls/
 │   ├── key.pem           # Long-term TLS private key
@@ -318,6 +322,8 @@ sequenceDiagram
 ├── peers.json            # Registered peer grants
 └── sessions/             # Active session tokens (in-memory only, not persisted)
 ```
+
+CLI-only headless deployments may override the config path with `--config-file <path>`, for example to place the config under the state volume in Docker. TUI entrypoints continue to use the default config path next to the executable.
 
 The state directory is **never** inside the synced data tree. This eliminates the need for recursive exclusion rules and prevents accidental synchronization of cryptographic material.
 

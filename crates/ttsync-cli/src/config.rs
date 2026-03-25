@@ -74,12 +74,29 @@ pub fn state_dir(override_dir: Option<&Path>) -> PathBuf {
         .join("tt-sync")
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfigPathMode {
+    Tui,
+    Cli,
+}
+
 pub fn default_config_path() -> Result<PathBuf, CliError> {
     let exe = std::env::current_exe().map_err(|e| CliError::Config(e.to_string()))?;
     let dir = exe
         .parent()
         .ok_or_else(|| CliError::Config("current_exe has no parent directory".into()))?;
     Ok(dir.join("config.toml"))
+}
+
+pub fn resolve_config_path(
+    default_path: PathBuf,
+    override_path: Option<&Path>,
+    mode: ConfigPathMode,
+) -> PathBuf {
+    match (mode, override_path) {
+        (ConfigPathMode::Cli, Some(path)) => path.to_path_buf(),
+        _ => default_path,
+    }
 }
 
 pub fn identity_path(state_dir: &Path) -> PathBuf {
@@ -158,5 +175,32 @@ pub enum CliError {
 impl From<std::io::Error> for CliError {
     fn from(e: std::io::Error) -> Self {
         Self::Io(e.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cli_mode_uses_override_path() {
+        let resolved = resolve_config_path(
+            PathBuf::from("config.toml"),
+            Some(Path::new("custom.toml")),
+            ConfigPathMode::Cli,
+        );
+
+        assert_eq!(resolved, PathBuf::from("custom.toml"));
+    }
+
+    #[test]
+    fn tui_mode_ignores_override_path() {
+        let resolved = resolve_config_path(
+            PathBuf::from("config.toml"),
+            Some(Path::new("custom.toml")),
+            ConfigPathMode::Tui,
+        );
+
+        assert_eq!(resolved, PathBuf::from("config.toml"));
     }
 }

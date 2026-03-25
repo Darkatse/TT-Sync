@@ -14,7 +14,7 @@ use ttsync_http::pairing_store::PairingTokenStore;
 use ttsync_http::tls::{SelfManagedTls, TlsProvider};
 
 use crate::Context;
-use crate::config::{self, CliError, Config};
+use crate::config::{self, CliError, Config, ConfigPathMode};
 use crate::output;
 use crate::server_runtime;
 
@@ -76,6 +76,15 @@ pub enum Command {
         #[command(subcommand)]
         action: CertAction,
     },
+}
+
+impl Command {
+    pub fn config_path_mode(&self) -> ConfigPathMode {
+        match self {
+            Command::Onboard => ConfigPathMode::Tui,
+            _ => ConfigPathMode::Cli,
+        }
+    }
 }
 
 #[derive(Subcommand)]
@@ -178,7 +187,7 @@ fn cmd_init(
 
     if ctx.config_path.exists() {
         return Err(CliError::Config(format!(
-            "already initialized (config exists at {}). Remove config.toml to re-initialize.",
+            "already initialized (config exists at {}). Remove the existing config file to re-initialize.",
             ctx.config_path.display()
         )));
     }
@@ -213,6 +222,7 @@ fn cmd_init(
         println!("  {} TT-Sync initialized", s.bold_green("✓"));
         println!();
         output::print_field(s, "State dir      ", &ctx.state_dir.display().to_string());
+        output::print_field(s, "Config file    ", &ctx.config_path.display().to_string());
         output::print_field(
             s,
             "Workspace path ",
@@ -238,6 +248,8 @@ fn cmd_init(
         output::print_field(s, "Listen         ", &config.listen);
         output::print_field(s, "Device ID      ", &identity.device_id);
         output::print_field(s, "SPKI SHA-256   ", tls.spki_sha256());
+        println!();
+        println!("  Reuse the same config file path for subsequent CLI commands.");
         println!();
         println!("  Next steps:");
         println!("    {} tt-sync serve", s.dim("$"));
@@ -295,6 +307,7 @@ async fn cmd_serve(ctx: &Context) -> Result<(), CliError> {
         output::print_field(s, "TLS            ", "self-managed (SPKI pin)");
         output::print_field(s, "SPKI SHA-256   ", &spki_sha256);
         output::print_field(s, "State dir      ", &ctx.state_dir.display().to_string());
+        output::print_field(s, "Config file    ", &ctx.config_path.display().to_string());
         println!();
         println!("  Press {} to stop.", s.dim("Ctrl+C"));
         println!();
@@ -525,9 +538,13 @@ fn cmd_doctor(ctx: &Context) -> Result<(), CliError> {
     }
 
     // Config
+    output::print_ok(
+        s,
+        &format!("Config file path: {}", ctx.config_path.display()),
+    );
     match config::load_config(&ctx.config_path) {
         Ok(config) => {
-            output::print_ok(s, "config.toml loaded");
+            output::print_ok(s, "Config file loaded");
             output::print_ok(s, &format!("Layout: {:?}", config.layout));
             output::print_ok(
                 s,
@@ -554,7 +571,7 @@ fn cmd_doctor(ctx: &Context) -> Result<(), CliError> {
                 Err(e) => output::print_err(s, &format!("Listen address invalid: {e}")),
             }
         }
-        Err(e) => output::print_err(s, &format!("config.toml: {e}")),
+        Err(e) => output::print_err(s, &format!("config file: {e}")),
     }
 
     // Identity

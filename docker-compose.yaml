@@ -1,0 +1,15 @@
+services:
+  tt-sync:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tt-sync:local
+    container_name: ${TT_SYNC_CONTAINER_NAME:-tt-sync}
+    restart: unless-stopped
+    ports:
+      - "${TT_SYNC_PORT:-8443}:8443"
+    volumes:
+      - ${TT_SYNC_STATE_DIR:-./.tt-sync/state}:/state
+      - ${TT_SYNC_WORKSPACE:-./data}:/data
+    # Uncomment after you have aligned host-side ownership.
+    # user: "${TT_SYNC_UID}:${TT_SYNC_GID}"

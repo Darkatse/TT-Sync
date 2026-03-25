@@ -22,6 +22,8 @@ target
 
 # Cache files
 .cache
+.tt-sync
+.env
 
 # Upstream ignores
 TauriTavern

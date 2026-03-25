@@ -1,0 +1,11 @@
+# Example config for CLI and Docker deployments.
+# Typical container usage:
+#   tt-sync --state-dir /state --config-file /state/config.toml serve
+
+workspace_path = "/data"
+layout = "tauritavern"
+public_url = "https://sync.example.com:8443"
+listen = "0.0.0.0:8443"
+
+[ui]
+language = "en"

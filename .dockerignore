@@ -1,0 +1,12 @@
+.git
+.github
+.cache
+target
+TauriTavern
+image
+docs
+README.md
+README_EN.md
+LICENSE
+.env
+.tt-sync
