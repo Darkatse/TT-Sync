@@ -19,8 +19,8 @@ pub fn render(
     server: Option<&RunningServer>,
 ) {
     let foreground_running = server.is_some();
-    let systemd_active = state.systemd_active;
-    let server_running = foreground_running || systemd_active.unwrap_or(false);
+    let user_service_active = state.user_service_active;
+    let server_running = foreground_running || user_service_active.unwrap_or(false);
     let [header, body, footer] = lay::page(frame.area());
 
     let status = if server_running {
@@ -72,7 +72,7 @@ fn render_actions(
     lang: UiLanguage,
     foreground_running: bool,
 ) {
-    let list_actions = actions(foreground_running, state.systemd_active);
+    let list_actions = actions(foreground_running, state.user_service_active);
     let selected = state
         .menu
         .selected()
@@ -162,19 +162,23 @@ fn render_info(
         ctx.config_path.display()
     )));
 
-    if cfg!(target_os = "linux") {
+    if let Some(manager) = crate::user_service::current_manager() {
         lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled("systemd", theme::title())));
-        lines.push(Line::from(match state.systemd_active {
+        lines.push(Line::from(Span::styled(
+            manager.display_name(),
+            theme::title(),
+        )));
+        lines.push(Line::from(match state.user_service_active {
             Some(true) => tr(lang, "状态: active", "status: active"),
             Some(false) => tr(lang, "状态: inactive", "status: inactive"),
             None => tr(lang, "状态: unknown", "status: unknown"),
         }));
         lines.push(Line::from(tr(
             lang,
-            "安装后可用 `systemctl --user status tt-sync.service` 查看状态。",
-            "After install, check status with `systemctl --user status tt-sync.service`.",
+            "安装后可用以下命令查看状态：",
+            "After install, check status with:",
         )));
+        lines.push(Line::from(manager.status_hint()));
     }
 
     if let Some(err) = &state.error {

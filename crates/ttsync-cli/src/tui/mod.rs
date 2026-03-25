@@ -88,7 +88,7 @@ fn run_with(ctx: &Context, start: StartMode) -> Result<(), CliError> {
         }
     }
 
-    let _ = app.serve.refresh_systemd_status();
+    let _ = app.serve.refresh_user_service_status();
 
     while !app.should_quit {
         if app.screen == Screen::Pairing {
@@ -103,7 +103,7 @@ fn run_with(ctx: &Context, start: StartMode) -> Result<(), CliError> {
                 ctx,
                 &mut app.main_menu,
                 app.language,
-                app.server.is_some() || app.serve.systemd_active.unwrap_or(false),
+                app.server.is_some() || app.serve.user_service_active.unwrap_or(false),
             ),
             Screen::Onboard => screens::onboard::render(frame, ctx, &mut app.onboard),
             Screen::Pairing => screens::pairing::render(
@@ -195,7 +195,7 @@ fn handle_key_main_menu(app: &mut App, ctx: &Context, code: KeyCode) -> Result<(
             MainMenuItem::Serve => {
                 app.start_serve();
                 app.serve.enter();
-                if let Err(e) = app.serve.refresh_systemd_status() {
+                if let Err(e) = app.serve.refresh_user_service_status() {
                     app.serve.error = Some(e.to_string());
                 }
             }
@@ -445,7 +445,7 @@ fn handle_key_serve(app: &mut App, ctx: &Context, code: KeyCode) -> Result<(), C
         return Ok(());
     }
 
-    let list_actions = actions(app.server.is_some(), app.serve.systemd_active);
+    let list_actions = actions(app.server.is_some(), app.serve.user_service_active);
     let len = list_actions.len();
 
     if len == 0 {
@@ -492,30 +492,30 @@ fn handle_key_serve(app: &mut App, ctx: &Context, code: KeyCode) -> Result<(), C
                     }
                     app.serve.error = None;
                 }
-                ServeAction::InstallSystemdUser => {
-                    match crate::systemd::install_enable_now_user_service(ctx) {
+                ServeAction::InstallUserService => {
+                    match crate::user_service::install_enable_now(ctx) {
                         Ok(_path) => {
                             app.serve.error = None;
-                            if let Err(e) = app.serve.refresh_systemd_status() {
+                            if let Err(e) = app.serve.refresh_user_service_status() {
                                 app.serve.error = Some(e.to_string());
                             }
                         }
                         Err(e) => app.serve.error = Some(e.to_string()),
                     }
                 }
-                ServeAction::StartSystemdUser => match crate::systemd::start_user_service() {
+                ServeAction::StartUserService => match crate::user_service::start() {
                     Ok(()) => {
                         app.serve.error = None;
-                        if let Err(e) = app.serve.refresh_systemd_status() {
+                        if let Err(e) = app.serve.refresh_user_service_status() {
                             app.serve.error = Some(e.to_string());
                         }
                     }
                     Err(e) => app.serve.error = Some(e.to_string()),
                 },
-                ServeAction::StopSystemdUser => match crate::systemd::stop_user_service() {
+                ServeAction::StopUserService => match crate::user_service::stop() {
                     Ok(()) => {
                         app.serve.error = None;
-                        if let Err(e) = app.serve.refresh_systemd_status() {
+                        if let Err(e) = app.serve.refresh_user_service_status() {
                             app.serve.error = Some(e.to_string());
                         }
                     }
@@ -701,19 +701,19 @@ fn handle_key_onboard(app: &mut App, ctx: &Context, code: KeyCode) -> Result<(),
 
         onboard::Step::ServiceMode => match code {
             KeyCode::Left | KeyCode::Right => {
-                if cfg!(target_os = "linux") {
+                if crate::user_service::current_manager().is_some() {
                     state.service_mode = match state.service_mode {
-                        onboard::ServiceMode::Foreground => onboard::ServiceMode::SystemdUser,
-                        onboard::ServiceMode::SystemdUser => onboard::ServiceMode::Foreground,
+                        onboard::ServiceMode::Foreground => onboard::ServiceMode::UserService,
+                        onboard::ServiceMode::UserService => onboard::ServiceMode::Foreground,
                     };
                 }
             }
             KeyCode::Enter => match state.service_mode {
-                onboard::ServiceMode::SystemdUser => {
+                onboard::ServiceMode::UserService => {
                     if let Some(server) = app.server.take() {
                         server.shutdown();
                     }
-                    match crate::systemd::install_enable_now_user_service(ctx) {
+                    match crate::user_service::install_enable_now(ctx) {
                         Ok(_path) => state.next_step(),
                         Err(e) => state.error = Some(e.to_string()),
                     }

@@ -54,7 +54,7 @@ pub struct State {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ServiceMode {
     Foreground,
-    SystemdUser,
+    UserService,
 }
 
 impl State {
@@ -81,8 +81,8 @@ impl State {
             mounts: None,
             overlay: None,
             pair_now: true,
-            service_mode: if cfg!(target_os = "linux") {
-                ServiceMode::SystemdUser
+            service_mode: if crate::user_service::current_manager().is_some() {
+                ServiceMode::UserService
             } else {
                 ServiceMode::Foreground
             },

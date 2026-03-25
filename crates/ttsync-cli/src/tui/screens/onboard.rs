@@ -646,10 +646,10 @@ fn render_step_service_mode(
         .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
         .areas(area);
 
-    let is_linux = cfg!(target_os = "linux");
+    let manager = crate::user_service::current_manager();
 
-    let (a, b) = if is_linux {
-        let systemd_dot = if state.service_mode == ServiceMode::SystemdUser {
+    let (a, b) = if let Some(manager) = manager {
+        let user_service_dot = if state.service_mode == ServiceMode::UserService {
             "●"
         } else {
             "○"
@@ -660,14 +660,20 @@ fn render_step_service_mode(
             "○"
         };
         (
-            format!(
-                "{systemd_dot} {}",
-                tr(
-                    state.language,
-                    "安装为 systemd user service（推荐）",
-                    "Install as systemd user service (recommended)",
-                )
-            ),
+            match state.language {
+                UiLanguage::ZhCn => {
+                    format!(
+                        "{user_service_dot} 安装为 {}（推荐）",
+                        manager.display_name()
+                    )
+                }
+                UiLanguage::En => {
+                    format!(
+                        "{user_service_dot} Install as {} (recommended)",
+                        manager.display_name()
+                    )
+                }
+            },
             format!(
                 "{fg_dot} {}",
                 tr(
@@ -683,8 +689,8 @@ fn render_step_service_mode(
                 "● {}",
                 tr(
                     state.language,
-                    "在本终端运行（当前系统不支持 systemd）",
-                    "Run in this terminal (systemd not supported)",
+                    "在本终端运行（当前平台暂未集成用户态 service 管理）",
+                    "Run in this terminal (no user-service integration on this platform)",
                 )
             ),
             String::new(),
@@ -705,7 +711,7 @@ fn render_step_service_mode(
         Line::from(""),
         Line::from(a),
     ];
-    if is_linux {
+    if manager.is_some() {
         content.push(Line::from(""));
         content.push(Line::from(b));
     }
@@ -733,27 +739,38 @@ fn render_step_service_mode(
             "Onboard 完成后将自动启动服务。",
             "Onboard will auto-start the server.",
         )),
-        Line::from(tr(
-            state.language,
-            "Windows 默认采用「本终端运行」。",
-            "Windows defaults to in-terminal run.",
-        )),
         Line::from(""),
-        Line::from(Span::styled(
-            tr(state.language, "路径", "Paths"),
-            theme::title(),
-        )),
-        Line::from(format!(
-            "{}: {}",
-            tr(state.language, "同步文件夹", "Sync folder"),
-            super::sync_folder_display(ctx, state.language)
-        )),
-        Line::from(format!(
-            "{}: {}",
-            tr(state.language, "配置文件", "Config"),
-            ctx.config_path.display()
-        )),
     ];
+
+    if let Some(manager) = manager {
+        notes.push(Line::from(format!(
+            "{}: {}",
+            tr(state.language, "用户态 service", "User service"),
+            manager.display_name()
+        )));
+    } else {
+        notes.push(Line::from(tr(
+            state.language,
+            "当前平台默认采用「本终端运行」。",
+            "This platform currently defaults to in-terminal run.",
+        )));
+    }
+
+    notes.push(Line::from(""));
+    notes.push(Line::from(Span::styled(
+        tr(state.language, "路径", "Paths"),
+        theme::title(),
+    )));
+    notes.push(Line::from(format!(
+        "{}: {}",
+        tr(state.language, "同步文件夹", "Sync folder"),
+        super::sync_folder_display(ctx, state.language)
+    )));
+    notes.push(Line::from(format!(
+        "{}: {}",
+        tr(state.language, "配置文件", "Config"),
+        ctx.config_path.display()
+    )));
 
     if let Some(err) = &state.error {
         notes.push(Line::from(""));
@@ -781,12 +798,10 @@ fn render_step_done(frame: &mut Frame, ctx: &Context, area: ratatui::prelude::Re
     );
 
     let mode = match state.service_mode {
-        ServiceMode::Foreground => tr(state.language, "本进程运行", "In-process"),
-        ServiceMode::SystemdUser => tr(
-            state.language,
-            "systemd user service",
-            "systemd user service",
-        ),
+        ServiceMode::Foreground => tr(state.language, "本进程运行", "In-process").to_owned(),
+        ServiceMode::UserService => crate::user_service::current_manager()
+            .map(|manager| manager.display_name().to_owned())
+            .unwrap_or_else(|| "user service".into()),
     };
 
     let body = vec![
@@ -801,7 +816,7 @@ fn render_step_done(frame: &mut Frame, ctx: &Context, area: ratatui::prelude::Re
             tr(state.language, "摘要", "Summary"),
             theme::title(),
         )),
-        Line::from(format!("mode  : {mode}")),
+        Line::from(format!("mode  : {}", mode)),
         Line::from(format!(
             "{}: {}",
             tr(state.language, "同步文件夹", "Sync folder"),
@@ -833,11 +848,7 @@ fn render_step_done(frame: &mut Frame, ctx: &Context, area: ratatui::prelude::Re
     );
 }
 
-fn render_footer(
-    frame: &mut Frame,
-    area: ratatui::prelude::Rect,
-    state: &State,
-) {
+fn render_footer(frame: &mut Frame, area: ratatui::prelude::Rect, state: &State) {
     let lang = state.language;
     let hint = match state.step {
         Step::WelcomeLanguage => tr(

@@ -1,9 +1,11 @@
 mod commands;
 mod config;
+mod launch_agent;
 mod output;
 mod server_runtime;
 mod systemd;
 mod tui;
+mod user_service;
 
 use std::path::PathBuf;
 

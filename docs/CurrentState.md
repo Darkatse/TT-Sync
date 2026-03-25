@@ -1,4 +1,4 @@
-# TT-Sync: Current State (2026-03-22)
+# TT-Sync: Current State (2026-03-24)
 
 This document is a snapshot of what is **implemented** and what is **still pending** in the TT-Sync workspace.
 
@@ -97,16 +97,20 @@ This document is a snapshot of what is **implemented** and what is **still pendi
 - `tt-sync onboard` runs a guided flow (implemented so far):
   - Language → listen port → public URL → layout mode → workspace detection/confirm → pair-now decision.
   - Pairing screen (optional): QR/link + live peers list + per-device permission confirmation, then “pair more / next step”.
-  - Service mode: systemd user service (Linux) or in-process foreground server, then a final summary screen.
+  - Service mode: user-scope service manager (Linux `systemd --user`, macOS `LaunchAgent`) or in-process foreground server, then a final summary screen.
 - Main menu screens implemented:
   - **Pairing**: generates QR/link, live peer list, per-device permission confirmation after pairing.
   - **Peers**: list paired devices, edit permissions, revoke peers.
-  - **Serve**: start/stop the server in-process; on Linux, install/enable/start/stop a systemd user service.
+  - **Serve**: start/stop the server in-process; on Linux, install/enable/start/stop a `systemd --user` service; on macOS, register/bootstrap/bootout a `LaunchAgent`.
 
 ## Pending / Next Milestones
 
 - `ttsync-cli`:
-  - TUI onboarding flow: implement service install/start (systemd + auto-start) and finish the final summary/exit step.
+  - TUI onboarding flow: finish the final summary/exit polishing and add Windows Task Scheduler support for user-scope auto-start.
+- Cross-platform service management:
+  - Strategy is documented in `docs/ServiceManagement.md`.
+  - Current scope is explicitly **user-scope only**: Linux `systemd --user`, macOS `LaunchAgent`, Windows Task Scheduler.
+  - macOS `LaunchAgent` is implemented; Windows Task Scheduler remains pending.
 - TauriTavern integration:
   - Client-side manifest scan + plan apply orchestration (pull/push loops) and progress events.
 - Tests:
