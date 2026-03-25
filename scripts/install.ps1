@@ -177,7 +177,7 @@ try {
         Write-Info 'The install directory is already on PATH.'
     }
 
-    Write-Info "Run 'tt-sync.exe --help' to get started."
+    Write-Info "Try 'tt-sync' for the TUI, or 'tt-sync onboard' for the guided first-time setup."
 } finally {
     if (Test-Path $TempDir) {
         Remove-Item -LiteralPath $TempDir -Recurse -Force

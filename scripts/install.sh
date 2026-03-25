@@ -209,4 +209,4 @@ case ":${PATH:-}:" in
     ;;
 esac
 
-say "Run '$BINARY_NAME --help' to get started."
+say "Try '$BINARY_NAME' for the TUI, or '$BINARY_NAME onboard' for the guided first-time setup."
