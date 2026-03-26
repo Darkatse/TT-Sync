@@ -35,6 +35,7 @@ sha2 = "0.10"
 hmac = "0.12"
 rand = "0.9"
 base64 = "0.22"
+webpki-roots = "1"
 
 # File system
 filetime = "0.2"
@@ -59,7 +60,7 @@ url = "2"
 blake3 = "1"
 
 # Internal crates
-ttsync-contract = { path = "crates/ttsync-contract" }
-ttsync-core = { path = "crates/ttsync-core" }
-ttsync-fs = { path = "crates/ttsync-fs" }
-ttsync-http = { path = "crates/ttsync-http" }
+ttsync-contract = { path = "crates/ttsync-contract", version = "1.0.0" }
+ttsync-core = { path = "crates/ttsync-core", version = "1.0.0" }
+ttsync-fs = { path = "crates/ttsync-fs", version = "1.0.0" }
+ttsync-http = { path = "crates/ttsync-http", version = "1.0.0", default-features = false }

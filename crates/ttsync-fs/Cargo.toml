@@ -1,6 +1,6 @@
 [package]
 name = "ttsync-fs"
-version = "0.1.0"
+version = "1.0.0"
 description = "File system adapter for TT-Sync manifest scanning and atomic I/O"
 edition.workspace = true
 license.workspace = true

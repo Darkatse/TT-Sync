@@ -6,7 +6,7 @@ TT-Sync follows **Clean Architecture** with an explicit dependency rule: inner l
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│                     ttsync-cli                           │  Presentation
+│                     tt-sync                              │  Presentation
 │              (clap commands, progress UI)                │
 ├──────────────────────────┬───────────────────────────────┤
 │       ttsync-http        │        ttsync-fs              │  Infrastructure
@@ -29,7 +29,7 @@ graph BT
     core["ttsync-core<br/><i>Application</i>"]
     fs["ttsync-fs<br/><i>Infrastructure</i>"]
     http["ttsync-http<br/><i>Infrastructure</i>"]
-    cli["ttsync-cli<br/><i>Presentation</i>"]
+    cli["tt-sync<br/><i>Presentation</i>"]
 
     core --> contract
     fs --> core
@@ -184,7 +184,7 @@ Shared middleware:
 | `SyncClient` | High-level client: open session, request plan, download/upload files, commit. Uses `reqwest`. |
 | SPKI pinning verifier | Custom `ServerCertVerifier` that validates the server's SPKI hash against the pinned value from pairing, ignoring hostname/issuer/expiry. |
 
-### 2.5 `ttsync-cli` (Presentation Layer)
+### 2.5 `tt-sync` (Presentation Layer)
 
 **Thin shell. No business logic.**
 

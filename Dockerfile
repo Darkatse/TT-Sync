@@ -9,7 +9,7 @@ WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 
-RUN cargo build --locked --release -p ttsync-cli \
+RUN cargo build --locked --release -p tt-sync \
     && strip target/release/tt-sync
 
 FROM scratch

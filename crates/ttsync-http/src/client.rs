@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use rcgen::CertifiedKey;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{DigitallySignedStruct, Error, RootCertStore, SignatureScheme};
@@ -67,23 +66,25 @@ fn build_pinned_rustls_config(
             .with_custom_certificate_verifier(Arc::new(verifier))
             .with_no_client_auth();
 
-    config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+    config.alpn_protocols = default_alpn_protocols();
     Ok(config)
 }
 
 fn build_signature_verifier() -> Result<Arc<rustls::client::WebPkiServerVerifier>, SyncError> {
-    let CertifiedKey { cert, .. } =
-        rcgen::generate_simple_self_signed(["ttsync-dummy-root".to_owned()])
-            .map_err(|e| SyncError::Internal(e.to_string()))?;
-
-    let mut roots = RootCertStore::empty();
-    roots
-        .add(CertificateDer::from(cert))
-        .map_err(|e| SyncError::Internal(e.to_string()))?;
-
+    let roots = RootCertStore {
+        roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
+    };
     rustls::client::WebPkiServerVerifier::builder(Arc::new(roots))
         .build()
         .map_err(|e| SyncError::Internal(e.to_string()))
+}
+
+fn default_alpn_protocols() -> Vec<Vec<u8>> {
+    if cfg!(target_os = "android") {
+        vec![b"http/1.1".to_vec()]
+    } else {
+        vec![b"h2".to_vec(), b"http/1.1".to_vec()]
+    }
 }
 
 #[derive(Debug)]

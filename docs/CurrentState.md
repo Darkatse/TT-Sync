@@ -63,7 +63,7 @@ This document is a snapshot of what is **implemented** and what is **still pendi
   - Accepts the server only if SPKI hash matches the pinned value.
   - Still verifies TLS handshake signatures (delegated to `WebPkiServerVerifier`).
 
-### `ttsync-cli` (presentation layer) — **newly implemented**
+### `tt-sync` (presentation layer) — **newly implemented**
 
 #### Architecture
 
@@ -113,7 +113,7 @@ This document is a snapshot of what is **implemented** and what is **still pendi
 
 ## Pending / Next Milestones
 
-- `ttsync-cli`:
+- `tt-sync`:
   - TUI onboarding flow: finish the final summary/exit polishing.
 - Cross-platform service management:
   - Strategy is documented in `docs/ServiceManagement.md`.

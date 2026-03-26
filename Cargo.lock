@@ -2386,8 +2386,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
-name = "ttsync-cli"
-version = "0.1.0"
+name = "tt-sync"
+version = "1.0.0"
 dependencies = [
  "base64",
  "chrono",
@@ -2418,7 +2418,7 @@ dependencies = [
 
 [[package]]
 name = "ttsync-contract"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "base64",
  "serde",
@@ -2428,7 +2428,7 @@ dependencies = [
 
 [[package]]
 name = "ttsync-core"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "base64",
  "ed25519-dalek",
@@ -2445,7 +2445,7 @@ dependencies = [
 
 [[package]]
 name = "ttsync-fs"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "blake3",
  "filetime",
@@ -2460,12 +2460,11 @@ dependencies = [
 
 [[package]]
 name = "ttsync-http"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "axum",
  "axum-server",
  "base64",
- "ed25519-dalek",
  "futures-util",
  "rcgen",
  "reqwest",
@@ -2474,14 +2473,13 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "thiserror",
  "tokio",
  "tokio-util",
  "tracing",
  "ttsync-contract",
  "ttsync-core",
- "url",
  "uuid",
+ "webpki-roots",
 ]
 
 [[package]]
