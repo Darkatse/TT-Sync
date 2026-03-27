@@ -136,7 +136,8 @@ cp .env.example .env
 mkdir -p ./.tt-sync/state
 cp config.toml.example ./.tt-sync/state/config.toml
 # 编辑 .env 和 ./.tt-sync/state/config.toml
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 docker compose run --rm tt-sync doctor
 docker compose run --rm tt-sync pair open --rw
 ```

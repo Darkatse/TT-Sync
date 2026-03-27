@@ -68,6 +68,10 @@ without repeating the state/config flags every time.
 
 ## 3. Quick Start With Compose
 
+The default Compose file pulls the published Docker Hub image:
+
+- `darkatse/tt-sync:latest`
+
 ### Step 1: Prepare local files
 
 ```bash
@@ -114,10 +118,11 @@ Notes:
 - `public_url` must be the external URL your clients will actually use
 - `layout` must match the mounted dataset shape
 
-### Step 4: Build and start
+### Step 4: Pull and start
 
 ```bash
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
 
 On first start, `serve` will create:
@@ -156,7 +161,7 @@ Example:
 ```bash
 cp .env.example .env
 mkdir -p ./.tt-sync/state
-docker compose build
+docker compose pull
 docker compose run --rm tt-sync \
   init \
   --path /data \
@@ -172,14 +177,14 @@ This path is a little more guided. The manual-config path is a little more trans
 If you do not want Compose:
 
 ```bash
-docker build -t tt-sync:local .
+docker pull darkatse/tt-sync:latest
 docker run -d \
   --name tt-sync \
   --restart unless-stopped \
   -p 8443:8443 \
   -v "$PWD/.tt-sync/state:/state" \
   -v "/srv/tauritavern/data:/data" \
-  tt-sync:local
+  darkatse/tt-sync:latest
 ```
 
 Operational commands:
@@ -188,12 +193,12 @@ Operational commands:
 docker run --rm \
   -v "$PWD/.tt-sync/state:/state" \
   -v "/srv/tauritavern/data:/data" \
-  tt-sync:local doctor
+  darkatse/tt-sync:latest doctor
 
 docker run --rm \
   -v "$PWD/.tt-sync/state:/state" \
   -v "/srv/tauritavern/data:/data" \
-  tt-sync:local pair open --rw
+  darkatse/tt-sync:latest pair open --rw
 ```
 
 ## 6. Layout Mapping
