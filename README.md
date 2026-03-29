@@ -97,11 +97,11 @@ curl -fsSL https://raw.githubusercontent.com/Darkatse/TT-Sync/main/scripts/insta
 指定版本：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Darkatse/TT-Sync/main/scripts/install.sh | sh -s -- --version 0.1.0
+curl -fsSL https://raw.githubusercontent.com/Darkatse/TT-Sync/main/scripts/install.sh | sh -s -- --version 1.0.0
 ```
 
 ```powershell
-& ([scriptblock]::Create((iwr https://raw.githubusercontent.com/Darkatse/TT-Sync/main/scripts/install.ps1).Content)) -Version 0.1.0
+& ([scriptblock]::Create((iwr https://raw.githubusercontent.com/Darkatse/TT-Sync/main/scripts/install.ps1).Content)) -Version 1.0.0
 ```
 
 自定义安装目录：

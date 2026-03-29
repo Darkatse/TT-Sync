@@ -99,11 +99,11 @@ curl -fsSL https://raw.githubusercontent.com/Darkatse/TT-Sync/main/scripts/insta
 Pin a version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Darkatse/TT-Sync/main/scripts/install.sh | sh -s -- --version 0.1.0
+curl -fsSL https://raw.githubusercontent.com/Darkatse/TT-Sync/main/scripts/install.sh | sh -s -- --version 1.0.0
 ```
 
 ```powershell
-& ([scriptblock]::Create((iwr https://raw.githubusercontent.com/Darkatse/TT-Sync/main/scripts/install.ps1).Content)) -Version 0.1.0
+& ([scriptblock]::Create((iwr https://raw.githubusercontent.com/Darkatse/TT-Sync/main/scripts/install.ps1).Content)) -Version 1.0.0
 ```
 
 Choose your own install directory:

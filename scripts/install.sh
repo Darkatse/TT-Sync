@@ -7,6 +7,8 @@ INSTALL_DIR="${TT_SYNC_INSTALL_DIR:-}"
 VERSION=""
 USE_NIGHTLY=0
 BINARY_NAME="tt-sync"
+RELEASE_BASE=""
+RELEASE_LABEL=""
 
 usage() {
   cat <<'EOF'
@@ -102,19 +104,19 @@ resolve_install_dir() {
   printf '%s' "$HOME/.local/bin"
 }
 
-resolve_release_base() {
+resolve_release() {
   asset_name="$1"
   release_root="https://github.com/$REPO/releases"
 
   if [ -n "$VERSION" ]; then
     RELEASE_LABEL="release $VERSION"
-    printf '%s/download/%s' "$release_root" "$VERSION"
+    RELEASE_BASE="$release_root/download/$VERSION"
     return
   fi
 
   if [ "$USE_NIGHTLY" -eq 1 ]; then
     RELEASE_LABEL="nightly"
-    printf '%s/download/nightly' "$release_root"
+    RELEASE_BASE="$release_root/download/nightly"
     return
   fi
 
@@ -122,12 +124,12 @@ resolve_release_base() {
   latest_checksums_url="$release_root/latest/download/SHA256SUMS.txt"
   if url_exists "$latest_asset_url" && url_exists "$latest_checksums_url"; then
     RELEASE_LABEL="latest stable release"
-    printf '%s/latest/download' "$release_root"
+    RELEASE_BASE="$release_root/latest/download"
     return
   fi
 
   RELEASE_LABEL="nightly"
-  printf '%s/download/nightly' "$release_root"
+  RELEASE_BASE="$release_root/download/nightly"
 }
 
 while [ "$#" -gt 0 ]; do
@@ -176,7 +178,9 @@ need_cmd id
 
 ASSET_NAME="$(resolve_asset_name)"
 INSTALL_DIR="$(resolve_install_dir)"
-RELEASE_BASE="$(resolve_release_base "$ASSET_NAME")"
+# Avoid command substitution here: POSIX sh runs $(...) in a subshell,
+# so RELEASE_BASE / RELEASE_LABEL assignments would not persist.
+resolve_release "$ASSET_NAME"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT HUP INT TERM
 
