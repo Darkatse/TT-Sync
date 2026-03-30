@@ -1,6 +1,6 @@
 services:
   tt-sync:
-    image: darkatse/tt-sync:latest
+    image: ${TT_SYNC_IMAGE:-ghcr.io/darkatse/tt-sync:latest}
     container_name: ${TT_SYNC_CONTAINER_NAME:-tt-sync}
     restart: unless-stopped
     ports:

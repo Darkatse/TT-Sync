@@ -68,9 +68,13 @@ without repeating the state/config flags every time.
 
 ## 3. Quick Start With Compose
 
-The default Compose file pulls the published Docker Hub image:
+The default Compose file pulls the primary GHCR image:
 
-- `darkatse/tt-sync:latest`
+- `ghcr.io/darkatse/tt-sync:latest`
+
+If you need the compatibility mirror instead, set:
+
+- `TT_SYNC_IMAGE=darkatse/tt-sync:latest`
 
 ### Step 1: Prepare local files
 
@@ -91,6 +95,7 @@ Default example:
 
 ```dotenv
 TT_SYNC_CONTAINER_NAME=tt-sync
+TT_SYNC_IMAGE=ghcr.io/darkatse/tt-sync:latest
 TT_SYNC_PORT=8443
 TT_SYNC_STATE_DIR=./.tt-sync/state
 TT_SYNC_WORKSPACE=/srv/tauritavern/data
@@ -177,14 +182,14 @@ This path is a little more guided. The manual-config path is a little more trans
 If you do not want Compose:
 
 ```bash
-docker pull darkatse/tt-sync:latest
+docker pull ghcr.io/darkatse/tt-sync:latest
 docker run -d \
   --name tt-sync \
   --restart unless-stopped \
   -p 8443:8443 \
   -v "$PWD/.tt-sync/state:/state" \
   -v "/srv/tauritavern/data:/data" \
-  darkatse/tt-sync:latest
+  ghcr.io/darkatse/tt-sync:latest
 ```
 
 Operational commands:
@@ -193,12 +198,12 @@ Operational commands:
 docker run --rm \
   -v "$PWD/.tt-sync/state:/state" \
   -v "/srv/tauritavern/data:/data" \
-  darkatse/tt-sync:latest doctor
+  ghcr.io/darkatse/tt-sync:latest doctor
 
 docker run --rm \
   -v "$PWD/.tt-sync/state:/state" \
   -v "/srv/tauritavern/data:/data" \
-  darkatse/tt-sync:latest pair open --rw
+  ghcr.io/darkatse/tt-sync:latest pair open --rw
 ```
 
 ## 6. Layout Mapping
@@ -268,20 +273,32 @@ In practice, most Docker deployments only need these files:
 
 Everything else is supporting documentation.
 
-## 11. Automated Docker Hub Publishing
+## 11. Automated Container Publishing
 
 This repository now includes a GitHub Actions workflow at [`../.github/workflows/docker-publish.yml`](../.github/workflows/docker-publish.yml).
 
-Before it can publish anything, create the target repository on Docker Hub and then configure these GitHub repository settings:
+GitHub Container Registry does **not** require a separate account signup. If you can push to this GitHub repository, you already have the identity you need for GHCR.
 
-- **Repository variable** `DOCKERHUB_USERNAME`: your Docker Hub namespace, for example `darkatse`
-- **Repository variable** `DOCKERHUB_IMAGE`: the full image name, for example `darkatse/tt-sync`
-- **Repository secret** `DOCKERHUB_TOKEN`: a Docker Hub access token with permission to push to that repository
+Before it can publish the compatibility mirror as well, configure this GitHub repository secret:
+
+- **Repository secret** `DOCKERHUB_TOKEN`: a Docker Hub access token with permission to push to `darkatse/tt-sync`
+
+The publish contract is now:
+
+- GHCR is the primary registry: `ghcr.io/darkatse/tt-sync`
+- Docker Hub is a compatibility mirror: `darkatse/tt-sync`
+- if `DOCKERHUB_TOKEN` is missing, the workflow still publishes GHCR and skips the mirror cleanly
+
+Important first-run note for GHCR:
+
+- the first published GHCR package starts as **private** by default
+- after the first successful publish, open the package page on GitHub and switch its visibility to **Public**
+- once that is done, users can pull anonymously with `docker pull ghcr.io/darkatse/tt-sync:latest`
 
 The workflow behavior is intentionally split by stability level:
 
-- push to `main`: publishes `edge` and `sha-<commit>`
-- push tag `vX.Y.Z`: publishes `X.Y.Z`, `X.Y`, `latest`, and `X` when `X > 0`
+- push to `main`: publishes `edge` and `sha-<commit>` to GHCR, then mirrors those tags to Docker Hub when configured
+- push tag `vX.Y.Z`: publishes `X.Y.Z`, `X.Y`, `latest`, and `X` when `X > 0` to GHCR, then mirrors the same tags to Docker Hub when configured
 - `workflow_dispatch`: republishes whatever the selected ref implies
 
 That split is deliberate:
@@ -290,7 +307,7 @@ That split is deliberate:
 - semver tags are the stable contract for users
 - `latest` only moves on an explicit version tag, not on every merge to `main`
 
-The workflow also runs `cargo test --locked` before logging in and pushing, so Docker Hub only receives images from a commit that passed the Rust test suite in CI.
+The workflow also runs `cargo test --locked` before logging in and pushing, so every published image still comes from a commit that passed the Rust test suite in CI.
 
 ## 12. Recommended Manual Release Path
 
@@ -307,20 +324,20 @@ That produces the same image shape as CI expects and keeps the published tags al
 
 If you need to re-run a publish without making a new commit:
 
-- open the `Publish Docker Image` workflow in GitHub Actions
+- open the `Publish Container Images` workflow in GitHub Actions
 - use `Run workflow`
 - select `main` to refresh `edge`, or select a `vX.Y.Z` tag to refresh the stable tags
 
 If you run `workflow_dispatch` on an arbitrary branch, the workflow will only emit the immutable `sha-<commit>` tag. That is a safety rail, not a bug.
 
-## 13. Direct Local Push To Docker Hub
+## 13. Direct Local Push To GHCR
 
-For emergency or offline-maintainer scenarios, you can push directly from a machine with Docker Buildx.
+For emergency or offline-maintainer scenarios, you can push directly from a machine with Docker Buildx. Prefer GHCR first, then mirror if needed.
 
 First log in:
 
 ```bash
-docker login --username <dockerhub-user>
+echo <github-classic-pat-with-write-packages> | docker login ghcr.io -u <github-user> --password-stdin
 ```
 
 If you do not already have a Buildx builder:
@@ -332,7 +349,7 @@ docker buildx create --name tt-sync-release --use --bootstrap
 ### Rolling `edge` publish
 
 ```bash
-IMAGE=<dockerhub-user>/tt-sync
+IMAGE=ghcr.io/darkatse/tt-sync
 SHA=$(git rev-parse --short HEAD)
 
 docker buildx build \
@@ -347,7 +364,7 @@ docker buildx build \
 ### Stable semver publish
 
 ```bash
-IMAGE=<dockerhub-user>/tt-sync
+IMAGE=ghcr.io/darkatse/tt-sync
 VERSION=0.1.0
 MINOR=${VERSION%.*}
 
@@ -376,6 +393,21 @@ docker buildx build \
 ```
 
 That mirrors the CI tagging policy. For `0.x.y`, skip the bare major tag on purpose because `0` is not a stable compatibility promise.
+
+If you also need to mirror the same tags to Docker Hub manually:
+
+```bash
+docker login --username darkatse
+docker buildx imagetools create --tag darkatse/tt-sync:${VERSION} ghcr.io/darkatse/tt-sync:${VERSION}
+docker buildx imagetools create --tag darkatse/tt-sync:${MINOR} ghcr.io/darkatse/tt-sync:${MINOR}
+docker buildx imagetools create --tag darkatse/tt-sync:latest ghcr.io/darkatse/tt-sync:latest
+```
+
+For `1.x.y`, mirror the major tag too:
+
+```bash
+docker buildx imagetools create --tag darkatse/tt-sync:1 ghcr.io/darkatse/tt-sync:1
+```
 
 Verify the pushed manifest list afterward:
 
