@@ -1,14 +1,16 @@
 //! Workspace layout and wire-to-local path mapping.
 
 use std::ffi::OsStr;
+use std::fmt;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 use ttsync_contract::path::SyncPath;
 use ttsync_core::error::SyncError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(try_from = "String", into = "String")]
 pub enum LayoutMode {
     TauriTavern,
     SillyTavern,
@@ -20,6 +22,59 @@ impl Default for LayoutMode {
         Self::TauriTavern
     }
 }
+
+impl LayoutMode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::TauriTavern => "tauri-tavern",
+            Self::SillyTavern => "silly-tavern",
+            Self::SillyTavernDocker => "silly-tavern-docker",
+        }
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "tauri-tavern" | "tauritavern" => Some(Self::TauriTavern),
+            "silly-tavern" | "sillytavern" => Some(Self::SillyTavern),
+            "silly-tavern-docker" | "sillytavern-docker" => Some(Self::SillyTavernDocker),
+            _ => None,
+        }
+    }
+}
+
+impl fmt::Display for LayoutMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for LayoutMode {
+    type Err = ParseLayoutModeError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::parse(value).ok_or_else(|| ParseLayoutModeError(value.to_owned()))
+    }
+}
+
+impl TryFrom<String> for LayoutMode {
+    type Error = ParseLayoutModeError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+
+impl From<LayoutMode> for String {
+    fn from(value: LayoutMode) -> Self {
+        value.as_str().to_owned()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error(
+    "unknown layout `{0}`; expected one of `tauri-tavern`, `silly-tavern`, `silly-tavern-docker`"
+)]
+pub struct ParseLayoutModeError(String);
 
 /// Resolved mount points used to map canonical wire paths to local filesystem paths.
 #[derive(Debug, Clone)]
@@ -259,6 +314,66 @@ mod tests {
         assert_eq!(
             resolve_to_local(&mounts, &data_path),
             PathBuf::from("data/_TauriTavern/extension-sources/local/x.json")
+        );
+    }
+
+    #[test]
+    fn accepts_legacy_layout_aliases() {
+        assert_eq!(
+            "tauritavern".parse::<LayoutMode>().unwrap(),
+            LayoutMode::TauriTavern
+        );
+        assert_eq!(
+            "sillytavern".parse::<LayoutMode>().unwrap(),
+            LayoutMode::SillyTavern
+        );
+        assert_eq!(
+            "sillytavern-docker".parse::<LayoutMode>().unwrap(),
+            LayoutMode::SillyTavernDocker
+        );
+    }
+
+    #[test]
+    fn serializes_layout_modes_to_canonical_names() {
+        assert_eq!(
+            serde_json::to_string(&LayoutMode::TauriTavern).unwrap(),
+            "\"tauri-tavern\""
+        );
+        assert_eq!(
+            serde_json::to_string(&LayoutMode::SillyTavern).unwrap(),
+            "\"silly-tavern\""
+        );
+        assert_eq!(
+            serde_json::to_string(&LayoutMode::SillyTavernDocker).unwrap(),
+            "\"silly-tavern-docker\""
+        );
+    }
+
+    #[test]
+    fn deserializes_canonical_and_legacy_layout_names() {
+        assert_eq!(
+            serde_json::from_str::<LayoutMode>("\"tauri-tavern\"").unwrap(),
+            LayoutMode::TauriTavern
+        );
+        assert_eq!(
+            serde_json::from_str::<LayoutMode>("\"tauritavern\"").unwrap(),
+            LayoutMode::TauriTavern
+        );
+        assert_eq!(
+            serde_json::from_str::<LayoutMode>("\"silly-tavern\"").unwrap(),
+            LayoutMode::SillyTavern
+        );
+        assert_eq!(
+            serde_json::from_str::<LayoutMode>("\"sillytavern\"").unwrap(),
+            LayoutMode::SillyTavern
+        );
+        assert_eq!(
+            serde_json::from_str::<LayoutMode>("\"silly-tavern-docker\"").unwrap(),
+            LayoutMode::SillyTavernDocker
+        );
+        assert_eq!(
+            serde_json::from_str::<LayoutMode>("\"sillytavern-docker\"").unwrap(),
+            LayoutMode::SillyTavernDocker
         );
     }
 }

@@ -296,11 +296,11 @@ fn render_step_layout(frame: &mut Frame, area: ratatui::prelude::Rect, state: &m
         .expect("layout selection must be set");
     let labels = [
         (
-            "tauritavern",
+            LayoutMode::TauriTavern,
             tr(state.language, "TauriTavern 数据目录", "TauriTavern data/"),
         ),
         (
-            "sillytavern",
+            LayoutMode::SillyTavern,
             tr(
                 state.language,
                 "SillyTavern 仓库布局",
@@ -308,7 +308,7 @@ fn render_step_layout(frame: &mut Frame, area: ratatui::prelude::Rect, state: &m
             ),
         ),
         (
-            "sillytavern-docker",
+            LayoutMode::SillyTavernDocker,
             tr(
                 state.language,
                 "SillyTavern Docker 目录布局",
@@ -320,7 +320,8 @@ fn render_step_layout(frame: &mut Frame, area: ratatui::prelude::Rect, state: &m
     let items: Vec<ListItem> = labels
         .iter()
         .enumerate()
-        .map(|(i, (id, desc))| {
+        .map(|(i, (mode, desc))| {
+            let id = mode.as_str();
             let dot = if i == idx { "●" } else { "○" };
             ListItem::new(format!("{dot} {id} — {desc}"))
         })
@@ -909,7 +910,7 @@ fn render_footer(frame: &mut Frame, area: ratatui::prelude::Rect, state: &State)
 fn layout_detail(lang: UiLanguage, mode: LayoutMode) -> Vec<Line<'static>> {
     match mode {
         LayoutMode::TauriTavern => vec![
-            Line::from(Span::styled("tauritavern", theme::title())),
+            Line::from(Span::styled(mode.as_str(), theme::title())),
             Line::from(""),
             Line::from(tr(
                 lang,
@@ -928,7 +929,7 @@ fn layout_detail(lang: UiLanguage, mode: LayoutMode) -> Vec<Line<'static>> {
             Line::from("  _tauritavern/"),
         ],
         LayoutMode::SillyTavern => vec![
-            Line::from(Span::styled("sillytavern", theme::title())),
+            Line::from(Span::styled(mode.as_str(), theme::title())),
             Line::from(""),
             Line::from(tr(
                 lang,
@@ -946,7 +947,7 @@ fn layout_detail(lang: UiLanguage, mode: LayoutMode) -> Vec<Line<'static>> {
             Line::from("  public/scripts/extensions/third-party/"),
         ],
         LayoutMode::SillyTavernDocker => vec![
-            Line::from(Span::styled("sillytavern-docker", theme::title())),
+            Line::from(Span::styled(mode.as_str(), theme::title())),
             Line::from(""),
             Line::from(tr(
                 lang,
@@ -967,9 +968,5 @@ fn layout_detail(lang: UiLanguage, mode: LayoutMode) -> Vec<Line<'static>> {
 }
 
 fn layout_id(mode: LayoutMode) -> &'static str {
-    match mode {
-        LayoutMode::TauriTavern => "tauritavern",
-        LayoutMode::SillyTavern => "sillytavern",
-        LayoutMode::SillyTavernDocker => "sillytavern-docker",
-    }
+    mode.as_str()
 }

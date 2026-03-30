@@ -3,7 +3,7 @@
 #   tt-sync --state-dir /state --config-file /state/config.toml serve
 
 workspace_path = "/data"
-layout = "tauritavern"
+layout = "tauri-tavern"
 public_url = "https://sync.example.com:8443"
 listen = "0.0.0.0:8443"
 

@@ -36,9 +36,9 @@ pub enum Command {
         #[arg(long)]
         path: String,
 
-        /// Layout mode: tauritavern | sillytavern | sillytavern-docker.
-        #[arg(long, default_value = "tauritavern")]
-        layout: String,
+        /// Layout mode: tauri-tavern | silly-tavern | silly-tavern-docker.
+        #[arg(long, default_value = "tauri-tavern")]
+        layout: LayoutMode,
 
         /// Public base URL for pair URIs (e.g., https://my-vps:8443).
         #[arg(long)]
@@ -148,7 +148,7 @@ pub async fn execute(ctx: &Context, command: Command) -> Result<(), CliError> {
             layout,
             public_url,
             listen,
-        } => cmd_init(ctx, &path, &layout, &public_url, &listen),
+        } => cmd_init(ctx, &path, layout, &public_url, &listen),
         Command::Serve => cmd_serve(ctx).await,
         Command::BackgroundServe => crate::windows_background::run(ctx).await,
         Command::Pair { action } => match action {
@@ -179,7 +179,7 @@ pub async fn execute(ctx: &Context, command: Command) -> Result<(), CliError> {
 fn cmd_init(
     ctx: &Context,
     path: &str,
-    layout: &str,
+    layout: LayoutMode,
     public_url: &str,
     listen: &str,
 ) -> Result<(), CliError> {
@@ -192,8 +192,6 @@ fn cmd_init(
         )));
     }
 
-    let layout_mode = parse_layout(layout)?;
-
     let workspace_path = Path::new(path);
     if !workspace_path.exists() || !workspace_path.is_dir() {
         return Err(CliError::Config(format!(
@@ -203,11 +201,11 @@ fn cmd_init(
     }
 
     let workspace_path = workspace_path.canonicalize()?;
-    let mounts = WorkspaceMounts::derive(layout_mode, &workspace_path)?;
+    let mounts = WorkspaceMounts::derive(layout, &workspace_path)?;
 
     let config = Config {
         workspace_path,
-        layout: layout_mode,
+        layout,
         public_url: public_url.to_owned(),
         listen: listen.to_owned(),
         ui: Default::default(),
@@ -228,7 +226,7 @@ fn cmd_init(
             "Workspace path ",
             &config.workspace_path.display().to_string(),
         );
-        output::print_field(s, "Layout         ", layout);
+        output::print_field(s, "Layout         ", &layout.to_string());
         output::print_field(
             s,
             "Data root      ",
@@ -288,7 +286,7 @@ async fn cmd_serve(ctx: &Context) -> Result<(), CliError> {
             "Workspace path ",
             &config.workspace_path.display().to_string(),
         );
-        output::print_field(s, "Layout         ", &format!("{:?}", config.layout));
+        output::print_field(s, "Layout         ", &config.layout.to_string());
         output::print_field(
             s,
             "Data root      ",
@@ -545,7 +543,7 @@ fn cmd_doctor(ctx: &Context) -> Result<(), CliError> {
     match config::load_config(&ctx.config_path) {
         Ok(config) => {
             output::print_ok(s, "Config file loaded");
-            output::print_ok(s, &format!("Layout: {:?}", config.layout));
+            output::print_ok(s, &format!("Layout: {}", config.layout));
             output::print_ok(
                 s,
                 &format!("Workspace path: {}", config.workspace_path.display()),
@@ -694,19 +692,6 @@ fn cmd_cert_rotate_leaf(ctx: &Context) -> Result<(), CliError> {
     }
 
     Ok(())
-}
-
-// -----------------------------------------------------------------------
-// Helpers
-// -----------------------------------------------------------------------
-
-fn parse_layout(s: &str) -> Result<LayoutMode, CliError> {
-    match s {
-        "tauritavern" => Ok(LayoutMode::TauriTavern),
-        "sillytavern" => Ok(LayoutMode::SillyTavern),
-        "sillytavern-docker" => Ok(LayoutMode::SillyTavernDocker),
-        other => Err(CliError::Config(format!("unknown layout: {other}"))),
-    }
 }
 
 fn parse_duration(s: &str) -> Result<u64, CliError> {

@@ -187,14 +187,14 @@ TT-Sync v2 uses a fixed **full sync dataset**. What you choose in practice is ho
 
 | Option | Intended target | Global extensions mapping |
 |--------|------------------|--------------------------|
-| `tauritavern` | TauriTavern `data/` | `extensions/third-party` → `data/extensions/third-party` |
-| `sillytavern` | SillyTavern repo layout | `extensions/third-party` → `public/scripts/extensions/third-party` |
-| `sillytavern-docker` | SillyTavern Docker volume layout | `extensions/third-party` → `./extensions` |
+| `tauri-tavern` | TauriTavern `data/` | `extensions/third-party` → `data/extensions/third-party` |
+| `silly-tavern` | SillyTavern repo layout | `extensions/third-party` → `public/scripts/extensions/third-party` |
+| `silly-tavern-docker` | SillyTavern Docker volume layout | `extensions/third-party` → `./extensions` |
 
 Use:
-- `tauritavern` for a TauriTavern data directory
-- `sillytavern` for a regular SillyTavern repository
-- `sillytavern-docker` for Docker volume mounts
+- `tauri-tavern` for a TauriTavern data directory
+- `silly-tavern` for a regular SillyTavern repository
+- `silly-tavern-docker` for Docker volume mounts
 
 ---
 

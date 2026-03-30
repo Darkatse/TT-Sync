@@ -52,13 +52,13 @@ Initialize a TT-Sync instance without using the TUI.
 ```bash
 tt-sync init \
   --path /srv/tauritavern/data \
-  --layout tauritavern \
+  --layout tauri-tavern \
   --public-url https://sync.example.com:8443
 ```
 
 Arguments:
 - `--path`: workspace path used as the layout anchor
-- `--layout`: `tauritavern`, `sillytavern`, or `sillytavern-docker`
+- `--layout`: `tauri-tavern`, `silly-tavern`, or `silly-tavern-docker`
 - `--public-url`: base URL embedded into pair URIs
 - `--listen`: optional listen address, default `0.0.0.0:8443`
 

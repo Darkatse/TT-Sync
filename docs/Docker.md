@@ -104,7 +104,7 @@ Typical container values:
 
 ```toml
 workspace_path = "/data"
-layout = "tauritavern"
+layout = "tauri-tavern"
 public_url = "https://sync.example.com:8443"
 listen = "0.0.0.0:8443"
 
@@ -165,7 +165,7 @@ docker compose pull
 docker compose run --rm tt-sync \
   init \
   --path /data \
-  --layout tauritavern \
+  --layout tauri-tavern \
   --public-url https://sync.example.com:8443
 docker compose up -d
 ```
@@ -207,11 +207,11 @@ Choose the host mount and config layout together:
 
 | Layout | Host path to mount | Container path | `workspace_path` |
 |--------|--------------------|----------------|------------------|
-| `tauritavern` | TauriTavern `data/` | `/data` | `/data` |
-| `sillytavern` | SillyTavern repo root | `/data` | `/data` |
-| `sillytavern-docker` | Docker root containing `data/` and `extensions/` | `/data` | `/data` |
+| `tauri-tavern` | TauriTavern `data/` | `/data` | `/data` |
+| `silly-tavern` | SillyTavern repo root | `/data` | `/data` |
+| `silly-tavern-docker` | Docker root containing `data/` and `extensions/` | `/data` | `/data` |
 
-For `sillytavern` and `sillytavern-docker`, `/data` is just the container-side mount point name. What matters is that the mounted host path matches the selected layout.
+For `silly-tavern` and `silly-tavern-docker`, `/data` is just the container-side mount point name. What matters is that the mounted host path matches the selected layout.
 
 Practical rule:
 

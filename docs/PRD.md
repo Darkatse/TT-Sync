@@ -97,9 +97,9 @@ TT-Sync v2 ships with a **single curated dataset** (fixed allowlist). It is not 
 
 TT-Sync keeps the **wire namespace canonical** (TauriTavern-shaped paths like `default-user/...` and `extensions/third-party/...`), and makes the local mapping configurable via a layout mode:
 
-- `tauritavern` — TauriTavern `data/` layout (global extensions live under `data/extensions/third-party`).
-- `sillytavern` — SillyTavern repo layout (global extensions live under `public/scripts/extensions/third-party`).
-- `sillytavern-docker` — SillyTavern docker volume layout (global extensions live under `./extensions`).
+- `tauri-tavern` — TauriTavern `data/` layout (global extensions live under `data/extensions/third-party`).
+- `silly-tavern` — SillyTavern repo layout (global extensions live under `public/scripts/extensions/third-party`).
+- `silly-tavern-docker` — SillyTavern docker volume layout (global extensions live under `./extensions`).
 
 Users provide a single `workspace_path` (layout anchor). TT-Sync derives mount points (data root, default-user root, extensions root) deterministically from `(layout_mode, workspace_path)`.
 
