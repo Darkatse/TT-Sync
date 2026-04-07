@@ -66,12 +66,18 @@ optional = true
 workspace = true
 optional = true
 
+[dependencies.async-compression]
+version = "0.4"
+features = ["tokio", "zstd"]
+optional = true
+
 [features]
 default = ["client", "server"]
 client = ["dep:reqwest", "dep:webpki-roots"]
 server = [
     "dep:axum",
     "dep:axum-server",
+    "dep:async-compression",
     "dep:futures-util",
     "dep:rcgen",
     "dep:rustls-pemfile",
