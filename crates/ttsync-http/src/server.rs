@@ -76,12 +76,19 @@ enum PlanDirection {
     Push,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
+struct TransferMeta {
+    size_bytes: u64,
+    modified_ms: u64,
+}
+
+#[derive(Debug)]
 struct PlanRecord {
     direction: PlanDirection,
     device_id: ttsync_contract::peer::DeviceId,
     mode: SyncMode,
-    plan: SyncPlan,
+    transfer: HashMap<SyncPath, TransferMeta>,
+    delete: Vec<SyncPath>,
     created_at_ms: u64,
 }
 
@@ -135,7 +142,13 @@ where
         .with_state(state);
 
     let handle = axum_server::Handle::new();
-    let server = axum_server::from_tcp_rustls(listener, tls_config).handle(handle.clone());
+    let mut server = axum_server::from_tcp_rustls(listener, tls_config).handle(handle.clone());
+    server
+        .http_builder()
+        .http2()
+        .max_concurrent_streams(Some(256))
+        .initial_connection_window_size(Some(4 * 1024 * 1024))
+        .initial_stream_window_size(Some(1024 * 1024));
 
     let task = tokio::spawn(async move {
         if let Err(e) = server.serve(app.into_make_service()).await {
@@ -313,15 +326,16 @@ where
         request.mode,
     );
 
+    let response = plan.clone();
     insert_plan(
         &state,
         peer.device_id,
         PlanDirection::Pull,
         request.mode,
-        plan.clone(),
+        plan,
     )?;
 
-    Ok(Json(plan))
+    Ok(Json(response))
 }
 
 async fn handle_push_plan<M, P>(
@@ -348,15 +362,16 @@ where
         request.mode,
     );
 
+    let response = plan.clone();
     insert_plan(
         &state,
         peer.device_id,
         PlanDirection::Push,
         request.mode,
-        plan.clone(),
+        plan,
     )?;
 
-    Ok(Json(plan))
+    Ok(Json(response))
 }
 
 async fn handle_download<M, P>(
@@ -371,24 +386,17 @@ where
     let peer = authenticate_peer(&state, &headers).await?;
     let sync_path = decode_sync_path_b64(&path_b64)?;
 
-    let record = get_plan(&state, &plan_id, &peer.device_id)?;
-    if record.direction != PlanDirection::Pull {
+    let (direction, meta) =
+        get_plan_transfer_meta(&state, &plan_id, &peer.device_id, &sync_path)?;
+    if direction != PlanDirection::Pull {
         return Err(SyncError::Unauthorized("plan is not a pull plan".into()).into());
     }
     if !peer.grant.permissions.read {
         return Err(SyncError::Unauthorized("read not granted".into()).into());
     }
 
-    let entry = record
-        .plan
-        .transfer
-        .iter()
-        .find(|e| e.path == sync_path)
-        .ok_or_else(|| SyncError::NotFound("file not in plan".into()))?
-        .clone();
-
-    let reader = state.manifest_store.read_file(&entry.path).await?;
-    let stream = ReaderStream::new(reader);
+    let reader = state.manifest_store.read_file(&sync_path).await?;
+    let stream = ReaderStream::with_capacity(reader, 64 * 1024);
     let body = Body::from_stream(stream);
 
     let mut response = Response::new(body);
@@ -399,12 +407,12 @@ where
     );
     response.headers_mut().insert(
         header::CONTENT_LENGTH,
-        HeaderValue::from_str(&entry.size_bytes.to_string())
+        HeaderValue::from_str(&meta.size_bytes.to_string())
             .map_err(|e| SyncError::Internal(e.to_string()))?,
     );
     response.headers_mut().insert(
         header::HeaderName::from_static("tt-modified-ms"),
-        HeaderValue::from_str(&entry.modified_ms.to_string())
+        HeaderValue::from_str(&meta.modified_ms.to_string())
             .map_err(|e| SyncError::Internal(e.to_string()))?,
     );
 
@@ -424,21 +432,14 @@ where
     let peer = authenticate_peer(&state, &headers).await?;
     let sync_path = decode_sync_path_b64(&path_b64)?;
 
-    let record = get_plan(&state, &plan_id, &peer.device_id)?;
-    if record.direction != PlanDirection::Push {
+    let (direction, meta) =
+        get_plan_transfer_meta(&state, &plan_id, &peer.device_id, &sync_path)?;
+    if direction != PlanDirection::Push {
         return Err(SyncError::Unauthorized("plan is not a push plan".into()).into());
     }
     if !peer.grant.permissions.write {
         return Err(SyncError::Unauthorized("write not granted".into()).into());
     }
-
-    let entry = record
-        .plan
-        .transfer
-        .iter()
-        .find(|e| e.path == sync_path)
-        .ok_or_else(|| SyncError::NotFound("file not in plan".into()))?
-        .clone();
 
     let stream = body
         .into_data_stream()
@@ -447,7 +448,7 @@ where
 
     state
         .manifest_store
-        .write_file(&entry.path, &mut reader, entry.modified_ms)
+        .write_file(&sync_path, &mut reader, meta.modified_ms)
         .await?;
 
     Ok(Json(json!({ "ok": true })))
@@ -476,7 +477,7 @@ where
     }
 
     if record.mode == SyncMode::Mirror {
-        for path in &record.plan.delete {
+        for path in &record.delete {
             state.manifest_store.delete_file(path).await?;
         }
     }
@@ -576,24 +577,47 @@ fn insert_plan<M, P>(
     let mut plans = state.plans.lock().expect("plans mutex poisoned");
     plans.retain(|_, record| record.created_at_ms + 30 * 60 * 1000 > now_ms);
 
+    let SyncPlan {
+        plan_id: PlanId(plan_id),
+        transfer,
+        delete,
+        files_total: _,
+        bytes_total: _,
+    } = plan;
+
+    let transfer = transfer
+        .into_iter()
+        .map(|entry| {
+            (
+                entry.path,
+                TransferMeta {
+                    size_bytes: entry.size_bytes,
+                    modified_ms: entry.modified_ms,
+                },
+            )
+        })
+        .collect::<HashMap<_, _>>();
+
     plans.insert(
-        plan.plan_id.0.clone(),
+        plan_id,
         PlanRecord {
             direction,
             device_id,
             mode,
-            plan,
+            transfer,
+            delete,
             created_at_ms: now_ms,
         },
     );
     Ok(())
 }
 
-fn get_plan<M, P>(
+fn get_plan_transfer_meta<M, P>(
     state: &ServerState<M, P>,
     plan_id: &str,
     device_id: &ttsync_contract::peer::DeviceId,
-) -> Result<PlanRecord, SyncError> {
+    sync_path: &SyncPath,
+) -> Result<(PlanDirection, TransferMeta), SyncError> {
     let now_ms = now_ms()?;
     let mut plans = state.plans.lock().expect("plans mutex poisoned");
     plans.retain(|_, record| record.created_at_ms + 30 * 60 * 1000 > now_ms);
@@ -608,7 +632,12 @@ fn get_plan<M, P>(
         ));
     }
 
-    Ok(record.clone())
+    let meta = record
+        .transfer
+        .get(sync_path)
+        .ok_or_else(|| SyncError::NotFound("file not in plan".into()))?;
+
+    Ok((record.direction, *meta))
 }
 
 fn take_plan<M, P>(
