@@ -8,7 +8,7 @@ use std::task::{Context, Poll};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use axum::body::{Body, Bytes};
-use axum::extract::{Path, Query, State};
+use axum::extract::{DefaultBodyLimit, Path, Query, State};
 use axum::http::header;
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
@@ -42,6 +42,8 @@ use ttsync_core::session::SessionManager;
 
 use crate::pairing_store::PairingTokenStore;
 use crate::tls::TlsProvider;
+
+const SYNC_PLAN_BODY_LIMIT_BYTES: usize = 32 * 1024 * 1024;
 
 /// Shared state accessible by all route handlers.
 pub struct ServerState<M, P> {
@@ -132,23 +134,7 @@ where
         .local_addr()
         .map_err(|e| SyncError::Io(e.to_string()))?;
 
-    let app = Router::new().route("/v2/status", get(handle_status));
-
-    let app = app
-        .route("/v2/pair/complete", post(handle_pair_complete::<M, P>))
-        .route("/v2/session/open", post(handle_session_open::<M, P>))
-        .route("/v2/sync/pull-plan", post(handle_pull_plan::<M, P>))
-        .route("/v2/sync/push-plan", post(handle_push_plan::<M, P>))
-        .route(
-            "/v2/plans/{plan_id}/files/{path_b64}",
-            get(handle_download::<M, P>).put(handle_upload::<M, P>),
-        )
-        .route(
-            "/v2/plans/{plan_id}/bundle",
-            get(handle_bundle_download::<M, P>).put(handle_bundle_upload::<M, P>),
-        )
-        .route("/v2/plans/{plan_id}/commit", post(handle_commit::<M, P>))
-        .with_state(state);
+    let app = build_router(state);
 
     let handle = axum_server::Handle::new();
     let mut server = axum_server::from_tcp_rustls(listener, tls_config).handle(handle.clone());
@@ -170,6 +156,39 @@ where
         handle,
         _task: task,
     })
+}
+
+fn build_router<M, P>(state: Arc<ServerState<M, P>>) -> Router
+where
+    M: ManifestStore + 'static,
+    P: PeerStore + 'static,
+{
+    Router::new()
+        .route("/v2/status", get(handle_status))
+        .route("/v2/pair/complete", post(handle_pair_complete::<M, P>))
+        .route("/v2/session/open", post(handle_session_open::<M, P>))
+        .route(
+            "/v2/sync/pull-plan",
+            post(handle_pull_plan::<M, P>).layer(sync_plan_body_limit()),
+        )
+        .route(
+            "/v2/sync/push-plan",
+            post(handle_push_plan::<M, P>).layer(sync_plan_body_limit()),
+        )
+        .route(
+            "/v2/plans/{plan_id}/files/{path_b64}",
+            get(handle_download::<M, P>).put(handle_upload::<M, P>),
+        )
+        .route(
+            "/v2/plans/{plan_id}/bundle",
+            get(handle_bundle_download::<M, P>).put(handle_bundle_upload::<M, P>),
+        )
+        .route("/v2/plans/{plan_id}/commit", post(handle_commit::<M, P>))
+        .with_state(state)
+}
+
+fn sync_plan_body_limit() -> DefaultBodyLimit {
+    DefaultBodyLimit::max(SYNC_PLAN_BODY_LIMIT_BYTES)
 }
 
 async fn handle_status() -> Json<serde_json::Value> {
@@ -396,8 +415,7 @@ where
     let peer = authenticate_peer(&state, &headers).await?;
     let sync_path = decode_sync_path_b64(&path_b64)?;
 
-    let (direction, meta) =
-        get_plan_transfer_meta(&state, &plan_id, &peer.device_id, &sync_path)?;
+    let (direction, meta) = get_plan_transfer_meta(&state, &plan_id, &peer.device_id, &sync_path)?;
     if direction != PlanDirection::Pull {
         return Err(SyncError::Unauthorized("plan is not a pull plan".into()).into());
     }
@@ -442,8 +460,7 @@ where
     let peer = authenticate_peer(&state, &headers).await?;
     let sync_path = decode_sync_path_b64(&path_b64)?;
 
-    let (direction, meta) =
-        get_plan_transfer_meta(&state, &plan_id, &peer.device_id, &sync_path)?;
+    let (direction, meta) = get_plan_transfer_meta(&state, &plan_id, &peer.device_id, &sync_path)?;
     if direction != PlanDirection::Push {
         return Err(SyncError::Unauthorized("plan is not a push plan".into()).into());
     }
@@ -519,10 +536,9 @@ where
         HeaderValue::from_static(BUNDLE_CONTENT_TYPE),
     );
     if wants_zstd {
-        response.headers_mut().insert(
-            header::CONTENT_ENCODING,
-            HeaderValue::from_static("zstd"),
-        );
+        response
+            .headers_mut()
+            .insert(header::CONTENT_ENCODING, HeaderValue::from_static("zstd"));
     }
 
     Ok(response)
@@ -583,8 +599,8 @@ where
             .await
             .map_err(|e| SyncError::Io(e.to_string()))?;
 
-        let path_text =
-            String::from_utf8(path_bytes).map_err(|_| SyncError::InvalidData("non-UTF-8 path".into()))?;
+        let path_text = String::from_utf8(path_bytes)
+            .map_err(|_| SyncError::InvalidData("non-UTF-8 path".into()))?;
         let sync_path =
             SyncPath::new(path_text).map_err(|e| SyncError::InvalidData(e.to_string()))?;
 
@@ -788,9 +804,8 @@ where
 {
     for (path, meta) in transfer {
         let path_bytes = path.as_str().as_bytes();
-        let path_len = u32::try_from(path_bytes.len()).map_err(|_| {
-            SyncError::InvalidData("bundle path is too long to encode".into())
-        })?;
+        let path_len = u32::try_from(path_bytes.len())
+            .map_err(|_| SyncError::InvalidData("bundle path is too long to encode".into()))?;
         if path_len > MAX_BUNDLE_PATH_LEN {
             return Err(SyncError::InvalidData(format!(
                 "bundle path is too long to encode: {} bytes",
@@ -816,7 +831,11 @@ where
     Ok(())
 }
 
-async fn copy_exact<R, W>(reader: &mut R, writer: &mut W, mut remaining: u64) -> Result<(), SyncError>
+async fn copy_exact<R, W>(
+    reader: &mut R,
+    writer: &mut W,
+    mut remaining: u64,
+) -> Result<(), SyncError>
 where
     R: AsyncRead + Unpin,
     W: tokio::io::AsyncWrite + Unpin,
@@ -1026,4 +1045,174 @@ fn now_ms() -> Result<u64, SyncError> {
         .duration_since(UNIX_EPOCH)
         .map_err(|e| SyncError::Internal(e.to_string()))?;
     Ok(duration.as_millis() as u64)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use axum::http::Request;
+    use tower::ServiceExt;
+    use ttsync_contract::manifest::ManifestV2;
+    use ttsync_contract::peer::{DeviceId, PeerGrant};
+    use ttsync_core::session::SessionManagerConfig;
+
+    #[derive(Debug)]
+    struct UnusedManifestStore;
+
+    impl ManifestStore for UnusedManifestStore {
+        fn scan(&self) -> impl std::future::Future<Output = Result<ManifestV2, SyncError>> + Send {
+            async {
+                Err(SyncError::Internal(
+                    "manifest store should not be used".into(),
+                ))
+            }
+        }
+
+        fn read_file(
+            &self,
+            _path: &SyncPath,
+        ) -> impl std::future::Future<
+            Output = Result<Box<dyn tokio::io::AsyncRead + Send + Unpin>, SyncError>,
+        > + Send {
+            async {
+                Err::<Box<dyn tokio::io::AsyncRead + Send + Unpin>, _>(SyncError::Internal(
+                    "manifest store should not be used".into(),
+                ))
+            }
+        }
+
+        fn write_file(
+            &self,
+            _path: &SyncPath,
+            _data: &mut (dyn tokio::io::AsyncRead + Send + Unpin),
+            _modified_ms: u64,
+        ) -> impl std::future::Future<Output = Result<(), SyncError>> + Send {
+            async {
+                Err(SyncError::Internal(
+                    "manifest store should not be used".into(),
+                ))
+            }
+        }
+
+        fn delete_file(
+            &self,
+            _path: &SyncPath,
+        ) -> impl std::future::Future<Output = Result<(), SyncError>> + Send {
+            async {
+                Err(SyncError::Internal(
+                    "manifest store should not be used".into(),
+                ))
+            }
+        }
+    }
+
+    #[derive(Debug)]
+    struct UnusedPeerStore;
+
+    impl PeerStore for UnusedPeerStore {
+        fn get_peer(
+            &self,
+            _device_id: &DeviceId,
+        ) -> impl std::future::Future<Output = Result<PeerGrant, SyncError>> + Send {
+            async { Err(SyncError::Internal("peer store should not be used".into())) }
+        }
+
+        fn save_peer(
+            &self,
+            _grant: PeerGrant,
+        ) -> impl std::future::Future<Output = Result<(), SyncError>> + Send {
+            async { Err(SyncError::Internal("peer store should not be used".into())) }
+        }
+
+        fn remove_peer(
+            &self,
+            _device_id: &DeviceId,
+        ) -> impl std::future::Future<Output = Result<(), SyncError>> + Send {
+            async { Err(SyncError::Internal("peer store should not be used".into())) }
+        }
+
+        fn list_peers(
+            &self,
+        ) -> impl std::future::Future<Output = Result<Vec<PeerGrant>, SyncError>> + Send {
+            async { Err(SyncError::Internal("peer store should not be used".into())) }
+        }
+    }
+
+    fn test_state() -> Arc<ServerState<UnusedManifestStore, UnusedPeerStore>> {
+        let state_dir = std::env::temp_dir().join(format!("ttsync-http-test-{}", Uuid::new_v4()));
+
+        Arc::new(ServerState::new(
+            DeviceId::new(Uuid::new_v4().to_string()).expect("valid device id"),
+            "TT-Sync Test".to_owned(),
+            Arc::new(UnusedManifestStore),
+            Arc::new(UnusedPeerStore),
+            Arc::new(SessionManager::new(SessionManagerConfig::default())),
+            PairingTokenStore::from_state_dir(state_dir),
+        ))
+    }
+
+    fn pull_plan_body_at_least(min_size: usize) -> String {
+        let prefix =
+            r#"{"mode":"Incremental","target_manifest":{"entries":[{"path":"default-user/chats/"#;
+        let suffix = r#".json","size_bytes":1,"modified_ms":1}]}}"#;
+        let filler_len = min_size.saturating_sub(prefix.len() + suffix.len());
+        let body = format!("{prefix}{}{suffix}", "x".repeat(filler_len));
+        assert!(body.len() >= min_size);
+        body
+    }
+
+    fn push_plan_body_at_least(min_size: usize) -> String {
+        let prefix =
+            r#"{"mode":"Incremental","source_manifest":{"entries":[{"path":"default-user/chats/"#;
+        let suffix = r#".json","size_bytes":1,"modified_ms":1}]}}"#;
+        let filler_len = min_size.saturating_sub(prefix.len() + suffix.len());
+        let body = format!("{prefix}{}{suffix}", "x".repeat(filler_len));
+        assert!(body.len() >= min_size);
+        body
+    }
+
+    async fn post_plan(path: &str, body: String) -> StatusCode {
+        let app = build_router(test_state());
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(path)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(body))
+                    .expect("valid request"),
+            )
+            .await
+            .expect("router response");
+
+        response.status()
+    }
+
+    #[tokio::test]
+    async fn plan_routes_accept_manifests_above_axum_default_limit() {
+        const AXUM_DEFAULT_BODY_LIMIT_BYTES: usize = 2_097_152;
+        let body_size = AXUM_DEFAULT_BODY_LIMIT_BYTES + 4096;
+
+        assert_eq!(
+            post_plan("/v2/sync/pull-plan", pull_plan_body_at_least(body_size)).await,
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            post_plan("/v2/sync/push-plan", push_plan_body_at_least(body_size)).await,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+
+    #[tokio::test]
+    async fn plan_routes_reject_manifests_above_explicit_limit() {
+        assert_eq!(
+            post_plan(
+                "/v2/sync/pull-plan",
+                pull_plan_body_at_least(SYNC_PLAN_BODY_LIMIT_BYTES + 1),
+            )
+            .await,
+            StatusCode::PAYLOAD_TOO_LARGE
+        );
+    }
 }

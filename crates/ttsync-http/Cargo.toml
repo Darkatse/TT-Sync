@@ -88,3 +88,6 @@ server = [
     "dep:tracing",
     "dep:uuid",
 ]
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
