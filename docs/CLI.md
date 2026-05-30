@@ -96,6 +96,7 @@ tt-sync pair open
 tt-sync pair open --rw
 tt-sync pair open --ro
 tt-sync pair open --mirror
+tt-sync --quiet pair open
 tt-sync pair open --expires 1h --json
 ```
 
@@ -112,6 +113,12 @@ Output modes:
 - default: human-readable summary
 - `--quiet`: print only the pair URI
 - `--json`: print machine-readable JSON
+
+Direct link output:
+
+```bash
+tt-sync --quiet pair open
+```
 
 ### `peers list`
 

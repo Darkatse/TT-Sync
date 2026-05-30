@@ -28,11 +28,19 @@ pub enum Overlay {
     },
 }
 
+#[derive(Debug, Clone)]
+pub enum ClipboardStatus {
+    Copied,
+    Failed(String),
+}
+
 pub struct State {
     pub pair_uri: Option<String>,
     pub qr: Option<String>,
     pub token: Option<String>,
     pub error: Option<String>,
+    pub clipboard_status: Option<ClipboardStatus>,
+    clipboard: Option<arboard::Clipboard>,
 
     pub peers: Vec<PeerGrant>,
     known_peer_ids: Vec<DeviceId>,
@@ -49,6 +57,8 @@ impl State {
             qr: None,
             token: None,
             error: None,
+            clipboard_status: None,
+            clipboard: None,
             peers: Vec::new(),
             known_peer_ids: Vec::new(),
             new_peers: VecDeque::new(),
@@ -98,6 +108,16 @@ impl State {
         self.token = Some(session.token);
         self.pair_uri = Some(uri.clone());
         self.qr = Some(render_qr(&uri));
+        self.clipboard_status = Some(match copy_pair_uri_to_clipboard(&uri) {
+            Ok(clipboard) => {
+                self.clipboard = Some(clipboard);
+                ClipboardStatus::Copied
+            }
+            Err(error) => {
+                self.clipboard = None;
+                ClipboardStatus::Failed(error)
+            }
+        });
         self.error = None;
         Ok(())
     }
@@ -207,9 +227,18 @@ impl State {
 }
 
 fn render_qr(data: &str) -> String {
-    use qrcode::QrCode;
     use qrcode::render::unicode;
+    use qrcode::{EcLevel, QrCode};
 
-    let code = QrCode::new(data.as_bytes()).expect("pair URI must be encodable as QR");
+    let code = QrCode::with_error_correction_level(data.as_bytes(), EcLevel::L)
+        .expect("pair URI must be encodable as QR");
     code.render::<unicode::Dense1x2>().quiet_zone(false).build()
+}
+
+fn copy_pair_uri_to_clipboard(uri: &str) -> Result<arboard::Clipboard, String> {
+    let mut clipboard = arboard::Clipboard::new().map_err(|error| error.to_string())?;
+    clipboard
+        .set_text(uri.to_owned())
+        .map_err(|error| error.to_string())?;
+    Ok(clipboard)
 }
