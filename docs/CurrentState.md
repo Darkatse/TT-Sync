@@ -7,6 +7,7 @@ This document is a snapshot of what is **implemented** and what is **still pendi
 ### `ttsync-contract` (protocol/domain types)
 
 - Strong wire types: `SyncPath`, `DeviceId`, `PlanId`, `SessionToken`, `PeerGrant`, `Permissions`.
+- Dataset scope wire contract: `DatasetSelection`, `DATASET_POLICY_VERSION`, `dataset_scope_v1`.
 - v2 pairing URI: `PairUri` (`tauritavern://tt-sync/pair?...&spki=...`) with render + parse.
 - v2 session headers constants: `TT-Device-Id`, `TT-Timestamp-Ms`, `TT-Nonce`, `TT-Signature`.
 - Canonical request format: `CanonicalRequest` (string form + parse).
@@ -15,6 +16,8 @@ This document is a snapshot of what is **implemented** and what is **still pendi
 ### `ttsync-core` (use-cases)
 
 - `compute_plan()` algorithm (incremental + mirror) with unit tests.
+- `DatasetPolicy` resolves stable dataset ids and public profile ids into scan roots, files, path predicates, exclusions, runtime eligibility, and scope-aware delete boundaries.
+- `compute_plan_for_policy()` validates source/target manifests against the selected dataset before diffing.
 - Pairing use-case:
   - `create_pairing_session(public_url, spki, config) -> (PairingSession, PairUri)`
   - `complete_pairing(session, req, server_id, server_name) -> (PeerGrant, PairCompleteResponse)`
@@ -28,7 +31,8 @@ This document is a snapshot of what is **implemented** and what is **still pendi
 ### `ttsync-fs` (filesystem adapters)
 
 - Wire↔local mapping: `LayoutMode` + `WorkspaceMounts` + `resolve_to_local()`.
-- Manifest scanning: `scan_manifest(mounts)` produces `ManifestV2` using the canonical **wire paths** and the v2 dataset allowlist.
+- Manifest scanning: `scan_manifest(mounts, policy)` produces `ManifestV2` using canonical **wire paths** and the selected DatasetPolicy.
+- TauriTavern Agent run history scanning only includes terminal runs (`completed`, `partial_success`, `cancelled`, `failed`); active run directories and run-index files stay out of manifests.
 - `FsManifestStore` implements `ttsync-core::ports::ManifestStore`.
 - Atomic writes + mtime preservation: `writer::write_file_atomic(...)` and `writer::delete_file(...)`.
 - `JsonPeerStore` persists peers in `<state-dir>/peers.json` and implements `ttsync-core::ports::PeerStore`.
@@ -55,6 +59,8 @@ This document is a snapshot of what is **implemented** and what is **still pendi
   - `PUT  /v2/plans/{plan_id}/files/{path_b64}` (upload for push plans)
   - `POST /v2/plans/{plan_id}/commit` (applies mirror deletes on server for push plans)
 - Server-side plan state is stored in-memory with a 30-minute TTL.
+- `/v2/status` advertises `dataset_scope_v1`, `dataset_policy_version`, supported leaf dataset ids, supported profile ids, and default dataset ids.
+- Pull/push plan requests carry `DatasetSelection`; server scanning, manifest validation, transfer plans, and mirror deletes are all scoped to that selection.
 
 #### Client (TLS pinning)
 
@@ -120,7 +126,7 @@ This document is a snapshot of what is **implemented** and what is **still pendi
   - Current scope is explicitly **user-scope only**: Linux `systemd --user`, macOS `LaunchAgent`, Windows Task Scheduler.
   - Linux `systemd --user`, macOS `LaunchAgent`, and Windows `Task Scheduler` (**beta**) are implemented.
 - TauriTavern integration:
-  - Client-side manifest scan + plan apply orchestration (pull/push loops) and progress events.
+  - Client-side manifest scan + plan apply orchestration (pull/push loops), progress events, and DatasetPolicy-based scope selection.
 - Tests:
   - Add integration tests that spin up the HTTPS server and exercise session + plan + file transfer end-to-end.
 
@@ -132,4 +138,4 @@ From `TT-Sync/`:
 cargo test
 ```
 
-All unit tests pass as of this snapshot (18/18).
+Run `cargo test` from the workspace root; unit tests cover dataset policy, plan diffing, bundle framing, HTTP body limits, TLS helpers, and pairing/session primitives.

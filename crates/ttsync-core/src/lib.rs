@@ -1,3 +1,4 @@
+pub mod dataset;
 pub mod error;
 pub mod events;
 pub mod pairing;

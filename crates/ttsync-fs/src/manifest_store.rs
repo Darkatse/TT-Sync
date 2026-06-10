@@ -1,5 +1,6 @@
 use ttsync_contract::manifest::ManifestV2;
 use ttsync_contract::path::SyncPath;
+use ttsync_core::dataset::ResolvedDatasetPolicy;
 use ttsync_core::error::SyncError;
 use ttsync_core::ports::ManifestStore;
 
@@ -23,9 +24,12 @@ impl FsManifestStore {
 }
 
 impl ManifestStore for FsManifestStore {
-    fn scan(&self) -> impl std::future::Future<Output = Result<ManifestV2, SyncError>> + Send {
+    fn scan(
+        &self,
+        policy: ResolvedDatasetPolicy,
+    ) -> impl std::future::Future<Output = Result<ManifestV2, SyncError>> + Send {
         let mounts = self.mounts.clone();
-        async move { scan_manifest(mounts).await }
+        async move { scan_manifest(mounts, policy).await }
     }
 
     fn read_file(

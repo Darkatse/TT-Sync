@@ -2,6 +2,7 @@ use ttsync_contract::manifest::ManifestV2;
 use ttsync_contract::path::SyncPath;
 use ttsync_contract::peer::{DeviceId, PeerGrant};
 
+use crate::dataset::ResolvedDatasetPolicy;
 use crate::error::SyncError;
 
 // ---------------------------------------------------------------------------
@@ -27,7 +28,10 @@ pub trait SyncEventSink: Send + Sync {
 /// Reads and writes the file manifest for a data root.
 pub trait ManifestStore: Send + Sync {
     /// Scan the data root and produce a manifest for the v2 dataset.
-    fn scan(&self) -> impl std::future::Future<Output = Result<ManifestV2, SyncError>> + Send;
+    fn scan(
+        &self,
+        policy: ResolvedDatasetPolicy,
+    ) -> impl std::future::Future<Output = Result<ManifestV2, SyncError>> + Send;
 
     /// Open a file for reading.
     fn read_file(

@@ -1,70 +1,32 @@
-//! Dataset scope definition: which wire paths are included/excluded in TT-Sync v2.
+//! Compatibility view for the original fixed TT-Sync v2 scope.
+//!
+//! New code should use `crate::dataset::ResolvedDatasetPolicy` so scan,
+//! validation, and mirror-delete boundaries share the same selection.
 
-/// Directories included in the v2 default dataset.
-pub const DIRECTORIES: &[&str] = &[
-    "default-user/chats",
-    "default-user/characters",
-    "default-user/groups",
-    "default-user/group chats",
-    "default-user/worlds",
-    "default-user/backgrounds",
-    "default-user/themes",
-    "default-user/user",
-    "default-user/User Avatars",
-    "default-user/OpenAI Settings",
-    "default-user/NovelAI Settings",
-    "default-user/TextGen Settings",
-    "default-user/KoboldAI Settings",
-    "default-user/instruct",
-    "default-user/context",
-    "default-user/QuickReplies",
-    "default-user/assets",
-    "default-user/extensions",
-    "extensions/third-party",
-    "_tauritavern/extension-sources/local",
-    "_tauritavern/extension-sources/global",
-];
+use std::sync::OnceLock;
 
-/// Individual files included in the v2 default dataset.
-pub const FILES: &[&str] = &[
-    "default-user/settings.json",
-    "default-user/secrets.json",
-    "default-user/tauritavern-settings.json",
-    "default-user/image-metadata.json",
-];
+use crate::dataset::ResolvedDatasetPolicy;
 
-/// Paths excluded from the dataset.
-pub const EXCLUSIONS: &[&str] = &["default-user/user/lan-sync"];
+static LEGACY_POLICY: OnceLock<ResolvedDatasetPolicy> = OnceLock::new();
 
 pub fn included_directories() -> &'static [&'static str] {
-    DIRECTORIES
+    LEGACY_POLICY
+        .get_or_init(ResolvedDatasetPolicy::legacy_v2)
+        .scan_roots()
 }
 
 pub fn included_files() -> &'static [&'static str] {
-    FILES
+    LEGACY_POLICY
+        .get_or_init(ResolvedDatasetPolicy::legacy_v2)
+        .files()
 }
 
 pub fn is_excluded(relative_path: &str) -> bool {
-    EXCLUSIONS.iter().any(|excluded| {
-        relative_path == *excluded
-            || relative_path
-                .strip_prefix(excluded)
-                .is_some_and(|suffix| suffix.starts_with('/'))
-    })
+    crate::dataset::is_excluded(relative_path)
 }
 
 pub fn is_in_scope(relative_path: &str) -> bool {
-    if is_excluded(relative_path) {
-        return false;
-    }
-
-    if FILES.contains(&relative_path) {
-        return true;
-    }
-
-    DIRECTORIES.iter().any(|dir| {
-        relative_path
-            .strip_prefix(dir)
-            .is_some_and(|suffix| suffix.starts_with('/'))
-    })
+    LEGACY_POLICY
+        .get_or_init(ResolvedDatasetPolicy::legacy_v2)
+        .contains_path(relative_path)
 }

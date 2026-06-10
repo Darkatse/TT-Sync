@@ -68,6 +68,7 @@ This crate is the shared language between TT-Sync and TauriTavern. It must be us
 | `SyncPhase` | Enum: `Scanning`, `Diffing`, `Downloading`, `Uploading`, `Deleting`. |
 | `PairUri` | Structured pair URI builder/parser: `tauritavern://tt-sync/pair?v=2&url=...&token=...&exp=...&spki=...` |
 | `CanonicalRequest` | Builder for the v2 canonical signature format. |
+| `DatasetSelection` | Wire-level selected dataset ids + policy version. Missing selection defaults to legacy v2 scope for old-client safety. |
 
 #### Design Rules
 
@@ -94,7 +95,7 @@ pub trait SyncEventSink: Send + Sync {
 
 /// Reads and writes the file manifest for the v2 dataset.
 pub trait ManifestStore: Send + Sync {
-    async fn scan(&self) -> Result<ManifestV2, SyncError>;
+    async fn scan(&self, policy: ResolvedDatasetPolicy) -> Result<ManifestV2, SyncError>;
     async fn read_file(&self, path: &SyncPath) -> Result<Box<dyn AsyncRead + Send>, SyncError>;
     async fn write_file(&self, path: &SyncPath, data: &mut (dyn AsyncRead + Send + Unpin), modified_ms: u64) -> Result<(), SyncError>;
     async fn delete_file(&self, path: &SyncPath) -> Result<(), SyncError>;
@@ -118,7 +119,8 @@ pub trait PeerStore: Send + Sync {
 | `plan` | Compute pull-plan and push-plan diffs given source and target manifests. |
 | `pull` | Orchestrate pull: request plan → download files → optional mirror delete → emit events. |
 | `push` | Orchestrate push: request plan → upload files → commit → emit events. |
-| `scope` | Dataset allowlist: which wire paths are included/excluded in TT-Sync v2. |
+| `dataset` | Versioned DatasetPolicy split into catalog, public profiles, path exclusions, runtime eligibility helpers, and scope-aware delete boundaries. |
+| `scope` | Compatibility view for the original fixed v2 scope. New code should use `dataset`. |
 
 #### Error Type
 
@@ -141,7 +143,8 @@ Intentionally simple. Maps cleanly to HTTP status codes at the adapter boundary.
 | Component | Responsibility |
 |-----------|---------------|
 | `FsManifestStore` | Walks the workspace per dataset scope. Produces `ManifestV2`. |
-| Dataset path tables | Static definitions of included directories/files and excluded paths for the v2 dataset. |
+| DatasetPolicy scanning | Walks policy scan roots and filters candidate files through the selected dataset predicates. |
+| Runtime eligibility | Keeps active TauriTavern Agent runs out of manifests until their run status is terminal. |
 | Atomic write | Write to `{name}.{ext}.ttsync.tmp` → `rename` to final path. Same pattern as current LAN Sync. |
 | mtime preservation | Uses `filetime` to set modification time after write. |
 | Path mapping | Translates `SyncPath` (wire format, always `/`-separated) to platform-native `PathBuf`. |
@@ -169,6 +172,8 @@ Routes:
 Shared middleware:
 - **Session auth extractor** — validates `SessionToken` from `Authorization: Bearer` header.
 - **Plan-scope guard** — ensures requested path exists in the active plan.
+- **Dataset-scope guard** — plan requests validate both manifests against the selected DatasetPolicy before any transfer/delete is recorded.
+- **Dataset capability report** — `/v2/status` exposes public leaf dataset ids separately from public profile ids.
 
 #### TLS (`tls` module)
 

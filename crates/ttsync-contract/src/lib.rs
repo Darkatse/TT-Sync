@@ -1,4 +1,5 @@
 pub mod canonical;
+pub mod dataset;
 pub mod manifest;
 pub mod pair;
 pub mod path;

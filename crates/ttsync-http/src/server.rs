@@ -26,6 +26,7 @@ use uuid::Uuid;
 use async_compression::tokio::bufread::{ZstdDecoder, ZstdEncoder};
 
 use ttsync_contract::canonical::CanonicalRequest;
+use ttsync_contract::dataset::{DATASET_POLICY_VERSION, DATASET_SCOPE_FEATURE_V1};
 use ttsync_contract::pair::{PairCompleteRequest, PairCompleteResponse};
 use ttsync_contract::path::SyncPath;
 use ttsync_contract::plan::{CommitResponse, PlanId, PullPlanRequest, PushPlanRequest, SyncPlan};
@@ -34,9 +35,13 @@ use ttsync_contract::session::{
     SessionOpenResponse, SessionToken,
 };
 use ttsync_contract::sync::SyncMode;
+use ttsync_core::dataset::{
+    ResolvedDatasetPolicy, supported_dataset_ids, supported_profile_ids,
+    tauri_tavern_default_selection,
+};
 use ttsync_core::error::SyncError;
 use ttsync_core::pairing::complete_pairing;
-use ttsync_core::plan::compute_plan;
+use ttsync_core::plan::compute_plan_for_policy;
 use ttsync_core::ports::{ManifestStore, PeerStore};
 use ttsync_core::session::SessionManager;
 
@@ -196,7 +201,11 @@ async fn handle_status() -> Json<serde_json::Value> {
         "ok": true,
         "protocol": "v2",
         "server": "tt-sync",
-        "features": ["bundle_v1", "zstd_v1"],
+        "features": ["bundle_v1", "zstd_v1", DATASET_SCOPE_FEATURE_V1],
+        "dataset_policy_version": DATASET_POLICY_VERSION,
+        "supported_dataset_ids": supported_dataset_ids(),
+        "supported_profile_ids": supported_profile_ids(),
+        "default_dataset_ids": tauri_tavern_default_selection().dataset_ids,
     }))
 }
 
@@ -346,14 +355,16 @@ where
         return Err(SyncError::Unauthorized("read not granted".into()).into());
     }
 
-    let source_manifest = state.manifest_store.scan().await?;
+    let policy = ResolvedDatasetPolicy::from_selection(&request.selection)?;
+    let source_manifest = state.manifest_store.scan(policy.clone()).await?;
     let plan_id = PlanId(Uuid::new_v4().to_string());
-    let plan = compute_plan(
+    let plan = compute_plan_for_policy(
         plan_id,
         &source_manifest,
         &request.target_manifest,
         request.mode,
-    );
+        &policy,
+    )?;
 
     let response = plan.clone();
     insert_plan(
@@ -382,14 +393,16 @@ where
         return Err(SyncError::Unauthorized("write not granted".into()).into());
     }
 
-    let target_manifest = state.manifest_store.scan().await?;
+    let policy = ResolvedDatasetPolicy::from_selection(&request.selection)?;
+    let target_manifest = state.manifest_store.scan(policy.clone()).await?;
     let plan_id = PlanId(Uuid::new_v4().to_string());
-    let plan = compute_plan(
+    let plan = compute_plan_for_policy(
         plan_id,
         &request.source_manifest,
         &target_manifest,
         request.mode,
-    );
+        &policy,
+    )?;
 
     let response = plan.clone();
     insert_plan(
@@ -959,9 +972,13 @@ fn insert_plan<M, P>(
         plan_id: PlanId(plan_id),
         transfer,
         delete,
+        selection,
         files_total: _,
         bytes_total: _,
     } = plan;
+    selection.ok_or_else(|| {
+        SyncError::Internal("policy-aware plan did not carry dataset selection".into())
+    })?;
 
     let transfer = transfer
         .into_iter()
@@ -1061,7 +1078,10 @@ mod tests {
     struct UnusedManifestStore;
 
     impl ManifestStore for UnusedManifestStore {
-        fn scan(&self) -> impl std::future::Future<Output = Result<ManifestV2, SyncError>> + Send {
+        fn scan(
+            &self,
+            _policy: ResolvedDatasetPolicy,
+        ) -> impl std::future::Future<Output = Result<ManifestV2, SyncError>> + Send {
             async {
                 Err(SyncError::Internal(
                     "manifest store should not be used".into(),
@@ -1187,6 +1207,43 @@ mod tests {
             .expect("router response");
 
         response.status()
+    }
+
+    #[tokio::test]
+    async fn status_reports_datasets_and_profiles_separately() {
+        let app = build_router(test_state());
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/v2/status")
+                    .body(Body::empty())
+                    .expect("valid request"),
+            )
+            .await
+            .expect("router response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("read response body");
+        let value: serde_json::Value =
+            serde_json::from_slice(&body).expect("status response is JSON");
+
+        assert!(
+            value["supported_dataset_ids"]
+                .as_array()
+                .expect("dataset ids array")
+                .iter()
+                .any(|id| id == "agent.profiles")
+        );
+        assert!(
+            value["supported_profile_ids"]
+                .as_array()
+                .expect("profile ids array")
+                .iter()
+                .any(|id| id == "tauritavern.default")
+        );
     }
 
     #[tokio::test]

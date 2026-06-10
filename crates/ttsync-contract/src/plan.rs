@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use crate::dataset::DatasetSelection;
 use crate::manifest::ManifestEntryV2;
 use crate::manifest::ManifestV2;
 use crate::path::SyncPath;
@@ -13,6 +14,8 @@ pub struct PlanId(pub String);
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncPlan {
     pub plan_id: PlanId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selection: Option<DatasetSelection>,
     /// Files to transfer (download for pull, upload for push).
     pub transfer: Vec<ManifestEntryV2>,
     /// Paths to delete on the target side (only applied for mirror mode).
@@ -27,6 +30,8 @@ pub struct SyncPlan {
 pub struct PullPlanRequest {
     #[serde(default)]
     pub mode: SyncMode,
+    #[serde(default)]
+    pub selection: DatasetSelection,
     pub target_manifest: ManifestV2,
 }
 
@@ -35,6 +40,8 @@ pub struct PullPlanRequest {
 pub struct PushPlanRequest {
     #[serde(default)]
     pub mode: SyncMode,
+    #[serde(default)]
+    pub selection: DatasetSelection,
     pub source_manifest: ManifestV2,
 }
 

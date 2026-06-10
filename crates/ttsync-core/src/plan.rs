@@ -4,6 +4,9 @@ use ttsync_contract::manifest::ManifestV2;
 use ttsync_contract::plan::{PlanId, SyncPlan};
 use ttsync_contract::sync::SyncMode;
 
+use crate::dataset::ResolvedDatasetPolicy;
+use crate::error::SyncError;
+
 /// Compute a synchronization plan by diffing source and target manifests.
 ///
 /// - `source`: the manifest of the authoritative side (the data to replicate from).
@@ -58,11 +61,46 @@ pub fn compute_plan(
 
     SyncPlan {
         plan_id,
+        selection: None,
         transfer,
         delete,
         files_total,
         bytes_total,
     }
+}
+
+pub fn compute_plan_for_policy(
+    plan_id: PlanId,
+    source: &ManifestV2,
+    target: &ManifestV2,
+    mode: SyncMode,
+    policy: &ResolvedDatasetPolicy,
+) -> Result<SyncPlan, SyncError> {
+    validate_manifest_scope(source, policy)?;
+    validate_manifest_scope(target, policy)?;
+
+    let mut plan = compute_plan(plan_id, source, target, mode);
+    if mode == SyncMode::Mirror {
+        plan.delete
+            .retain(|path| policy.allows_delete(path.as_str()));
+    }
+    plan.selection = Some(policy.selection().clone());
+    Ok(plan)
+}
+
+fn validate_manifest_scope(
+    manifest: &ManifestV2,
+    policy: &ResolvedDatasetPolicy,
+) -> Result<(), SyncError> {
+    for entry in &manifest.entries {
+        if !policy.contains_path(entry.path.as_str()) {
+            return Err(SyncError::InvalidData(format!(
+                "manifest path outside selected dataset scope: {}",
+                entry.path
+            )));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -72,7 +110,11 @@ mod tests {
     use ttsync_contract::plan::PlanId;
     use ttsync_contract::sync::SyncMode;
 
-    use super::compute_plan;
+    use ttsync_contract::dataset::DatasetSelection;
+
+    use crate::dataset::ResolvedDatasetPolicy;
+
+    use super::{compute_plan, compute_plan_for_policy};
 
     fn entry(path: &str, size: u64, mtime: u64) -> ManifestEntryV2 {
         ManifestEntryV2 {
@@ -122,5 +164,57 @@ mod tests {
         assert_eq!(plan.files_total, 0);
         assert_eq!(plan.delete.len(), 1);
         assert_eq!(plan.delete[0].as_str(), "default-user/old.json");
+    }
+
+    #[test]
+    fn policy_plan_rejects_manifest_entries_outside_selection() {
+        let selection = DatasetSelection::new(
+            ttsync_contract::dataset::DATASET_POLICY_VERSION,
+            vec!["chat.character.history".to_owned()],
+        );
+        let policy = ResolvedDatasetPolicy::from_selection(&selection).unwrap();
+        let source = ManifestV2 { entries: vec![] };
+        let target = ManifestV2 {
+            entries: vec![entry("default-user/backgrounds/bg.png", 1, 1)],
+        };
+
+        let result = compute_plan_for_policy(
+            PlanId("test".into()),
+            &source,
+            &target,
+            SyncMode::Mirror,
+            &policy,
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn policy_plan_deletes_only_selected_scope_entries() {
+        let selection = DatasetSelection::new(
+            ttsync_contract::dataset::DATASET_POLICY_VERSION,
+            vec!["chat.character.history".to_owned()],
+        );
+        let policy = ResolvedDatasetPolicy::from_selection(&selection).unwrap();
+        let source = ManifestV2 { entries: vec![] };
+        let target = ManifestV2 {
+            entries: vec![entry("default-user/chats/alice/old.jsonl", 1, 1)],
+        };
+
+        let plan = compute_plan_for_policy(
+            PlanId("test".into()),
+            &source,
+            &target,
+            SyncMode::Mirror,
+            &policy,
+        )
+        .unwrap();
+
+        assert_eq!(plan.delete.len(), 1);
+        assert_eq!(
+            plan.delete[0].as_str(),
+            "default-user/chats/alice/old.jsonl"
+        );
+        assert!(plan.selection.is_some());
     }
 }
