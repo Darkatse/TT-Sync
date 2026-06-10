@@ -1,6 +1,6 @@
 [package]
 name = "ttsync-core"
-version = "1.0.0"
+version.workspace = true
 description = "Use-case orchestration and trait definitions for TT-Sync"
 edition.workspace = true
 license.workspace = true

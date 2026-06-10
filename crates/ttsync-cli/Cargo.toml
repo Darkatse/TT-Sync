@@ -1,6 +1,6 @@
 [package]
 name = "tt-sync"
-version = "1.0.0"
+version.workspace = true
 description = "Command-line interface for TT-Sync remote synchronization server"
 edition.workspace = true
 license.workspace = true

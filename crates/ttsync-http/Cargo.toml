@@ -1,6 +1,6 @@
 [package]
 name = "ttsync-http"
-version = "1.0.0"
+version.workspace = true
 description = "HTTP server and client adapter for TT-Sync v2 protocol"
 edition.workspace = true
 license.workspace = true

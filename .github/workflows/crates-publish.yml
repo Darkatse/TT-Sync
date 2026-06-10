@@ -1,0 +1,167 @@
+name: Publish Crates
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - crates/**/Cargo.toml
+      - scripts/ci/cargo_release.py
+      - .github/workflows/crates-publish.yml
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Validate and test without publishing
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: crates-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  publish:
+    if: github.repository == 'Darkatse/TT-Sync'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Read release version
+        id: release
+        shell: bash
+        run: |
+          current="$(python3 scripts/ci/cargo_release.py version)"
+          previous_ref="${{ github.event.before }}"
+          if [[ -n "$previous_ref" && ! "$previous_ref" =~ ^0+$ ]]; then
+            previous="$(python3 scripts/ci/cargo_release.py previous-version --ref "$previous_ref" || true)"
+          else
+            previous="$(python3 scripts/ci/cargo_release.py previous-version || true)"
+          fi
+
+          dry_run=false
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.dry_run }}" == "true" ]]; then
+            dry_run=true
+          fi
+
+          should_release=false
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" || "$current" != "$previous" ]]; then
+            should_release=true
+          fi
+
+          echo "version=$current" >> "$GITHUB_OUTPUT"
+          echo "previous=$previous" >> "$GITHUB_OUTPUT"
+          echo "dry_run=$dry_run" >> "$GITHUB_OUTPUT"
+          echo "should_release=$should_release" >> "$GITHUB_OUTPUT"
+
+      - name: Skip unchanged version
+        if: steps.release.outputs.should_release != 'true'
+        run: echo "Workspace version ${{ steps.release.outputs.version }} is unchanged; no crates.io release is needed."
+
+      - name: Validate release metadata
+        if: steps.release.outputs.should_release == 'true'
+        run: python3 scripts/ci/cargo_release.py validate
+
+      - name: Run tests
+        if: steps.release.outputs.should_release == 'true'
+        run: cargo test --locked
+
+      - name: Check release tag
+        if: steps.release.outputs.should_release == 'true'
+        id: tag
+        shell: bash
+        run: |
+          tag="v${{ steps.release.outputs.version }}"
+          git fetch --tags --force
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            tagged_commit="$(git rev-list -n 1 "$tag")"
+            if [[ "$tagged_commit" != "$GITHUB_SHA" ]]; then
+              echo "::error::Tag $tag already points to $tagged_commit, not $GITHUB_SHA."
+              exit 1
+            fi
+            exists=true
+          else
+            exists=false
+          fi
+          echo "name=$tag" >> "$GITHUB_OUTPUT"
+          echo "exists=$exists" >> "$GITHUB_OUTPUT"
+
+      - name: Stop after dry run
+        if: steps.release.outputs.should_release == 'true' && steps.release.outputs.dry_run == 'true'
+        run: echo "Dry run completed for v${{ steps.release.outputs.version }}."
+
+      - name: Verify release secrets
+        if: steps.release.outputs.should_release == 'true' && steps.release.outputs.dry_run != 'true'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          RELEASE_GITHUB_TOKEN: ${{ secrets.RELEASE_GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          if [[ -z "${CARGO_REGISTRY_TOKEN:-}" ]]; then
+            echo "::error::Repository secret CARGO_REGISTRY_TOKEN is required to publish crates."
+            exit 1
+          fi
+          if [[ "${{ steps.tag.outputs.exists }}" != "true" && -z "${RELEASE_GITHUB_TOKEN:-}" ]]; then
+            echo "::error::Repository secret RELEASE_GITHUB_TOKEN is required to push a tag that can trigger downstream release workflows."
+            exit 1
+          fi
+
+      - name: Publish crates
+        if: steps.release.outputs.should_release == 'true' && steps.release.outputs.dry_run != 'true'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          VERSION: ${{ steps.release.outputs.version }}
+        shell: bash
+        run: |
+          publish_package() {
+            local package="$1"
+
+            for attempt in 1 2 3 4 5; do
+              if python3 scripts/ci/cargo_release.py published "$package" "$VERSION"; then
+                echo "$package $VERSION already exists on crates.io; skipping."
+                return
+              fi
+
+              if cargo publish -p "$package" --locked; then
+                return
+              fi
+
+              if [[ "$attempt" == "5" ]]; then
+                echo "::error::Failed to publish $package $VERSION after $attempt attempts."
+                exit 1
+              fi
+
+              sleep_seconds=$((attempt * 30))
+              echo "Retrying $package publish in ${sleep_seconds}s..."
+              sleep "$sleep_seconds"
+            done
+          }
+
+          for package in $(python3 scripts/ci/cargo_release.py packages); do
+            publish_package "$package"
+          done
+
+      - name: Push release tag
+        if: steps.release.outputs.should_release == 'true' && steps.release.outputs.dry_run != 'true' && steps.tag.outputs.exists != 'true'
+        env:
+          RELEASE_GITHUB_TOKEN: ${{ secrets.RELEASE_GITHUB_TOKEN }}
+          TAG_NAME: ${{ steps.tag.outputs.name }}
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG_NAME" -m "Release $TAG_NAME"
+          git push "https://x-access-token:${RELEASE_GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "refs/tags/$TAG_NAME"

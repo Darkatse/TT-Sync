@@ -2422,7 +2422,7 @@ checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
 name = "tt-sync"
-version = "1.0.0"
+version = "2.0.0"
 dependencies = [
  "base64",
  "chrono",
@@ -2453,7 +2453,7 @@ dependencies = [
 
 [[package]]
 name = "ttsync-contract"
-version = "1.0.0"
+version = "2.0.0"
 dependencies = [
  "base64",
  "serde",
@@ -2463,7 +2463,7 @@ dependencies = [
 
 [[package]]
 name = "ttsync-core"
-version = "1.0.0"
+version = "2.0.0"
 dependencies = [
  "base64",
  "ed25519-dalek",
@@ -2480,7 +2480,7 @@ dependencies = [
 
 [[package]]
 name = "ttsync-fs"
-version = "1.0.0"
+version = "2.0.0"
 dependencies = [
  "blake3",
  "filetime",
@@ -2495,7 +2495,7 @@ dependencies = [
 
 [[package]]
 name = "ttsync-http"
-version = "1.0.0"
+version = "2.0.0"
 dependencies = [
  "async-compression",
  "axum",

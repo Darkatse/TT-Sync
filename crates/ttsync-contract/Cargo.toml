@@ -1,6 +1,6 @@
 [package]
 name = "ttsync-contract"
-version = "1.0.0"
+version.workspace = true
 description = "Protocol types and wire contracts for TT-Sync v2"
 edition.workspace = true
 license.workspace = true

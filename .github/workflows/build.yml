@@ -161,8 +161,17 @@ jobs:
       - name: Get version from Cargo.toml
         id: version
         run: |
-          VERSION=$(grep '^version' crates/ttsync-cli/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          VERSION=$(python3 scripts/ci/cargo_release.py version)
           echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Verify stable release tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          EXPECTED_TAG="v${{ steps.version.outputs.version }}"
+          if [ "${{ github.ref_name }}" != "$EXPECTED_TAG" ]; then
+            echo "::error::Release tag ${{ github.ref_name }} does not match workspace version $EXPECTED_TAG."
+            exit 1
+          fi
 
       - name: Get short SHA
         id: sha
