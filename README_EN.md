@@ -171,6 +171,8 @@ The main menu currently covers:
 On the pairing screen:
 - `r`: refresh the QR code / regenerate the pairing token
 
+The pairing screen prioritizes the QR code and copies the pair link to the clipboard automatically. If the terminal is too small to show the full QR code, paste the copied link into the client.
+
 ### Pairing Flow
 
 The intended path is simple:
@@ -178,6 +180,12 @@ The intended path is simple:
 2. Generate a QR code or pairing link.
 3. In TauriTavern, scan the QR code or paste the `tauritavern://tt-sync/pair?...` link.
 4. Manage permissions in `Peers` and runtime status in `Serve`.
+
+To print only the pair link in the terminal:
+
+```bash
+tt-sync --quiet pair open
+```
 
 ---
 
