@@ -40,7 +40,6 @@ pub struct ServerState<M, P> {
     pub manifest_store: Arc<M>,
     pub peer_store: Arc<P>,
     pub session_manager: Arc<SessionManager>,
-    pub pairing_store: PairingTokenStore,
     pub status: StatusResponse,
     plans: PlanStore,
 }
@@ -52,7 +51,6 @@ impl<M, P> ServerState<M, P> {
         manifest_store: Arc<M>,
         peer_store: Arc<P>,
         session_manager: Arc<SessionManager>,
-        pairing_store: PairingTokenStore,
     ) -> Self {
         Self {
             server_device_id,
@@ -60,7 +58,6 @@ impl<M, P> ServerState<M, P> {
             manifest_store,
             peer_store,
             session_manager,
-            pairing_store,
             status: default_status_response(),
             plans: PlanStore::default(),
         }
@@ -85,6 +82,21 @@ impl<M, P> ServerState<M, P> {
     }
 }
 
+/// State for the standard one-token pairing endpoint.
+pub struct PairingState<M, P> {
+    pub(crate) shared: Arc<ServerState<M, P>>,
+    pub(crate) pairing_store: PairingTokenStore,
+}
+
+impl<M, P> PairingState<M, P> {
+    pub fn new(shared: Arc<ServerState<M, P>>, pairing_store: PairingTokenStore) -> Self {
+        Self {
+            shared,
+            pairing_store,
+        }
+    }
+}
+
 /// Handle to a running TT-Sync server.
 pub struct ServerHandle {
     pub addr: SocketAddr,
@@ -104,6 +116,7 @@ pub async fn spawn_server<M, P>(
     addr: SocketAddr,
     tls: Arc<dyn TlsProvider>,
     state: Arc<ServerState<M, P>>,
+    pairing_store: PairingTokenStore,
 ) -> Result<ServerHandle, SyncError>
 where
     M: ManifestStore + 'static,
@@ -120,7 +133,7 @@ where
         .local_addr()
         .map_err(|e| SyncError::Io(e.to_string()))?;
 
-    let app = build_router(state);
+    let app = build_router(state, pairing_store);
 
     let handle = axum_server::Handle::<SocketAddr>::new();
     let mut server = axum_server::from_tcp_rustls(listener, tls_config)
@@ -146,14 +159,24 @@ where
     })
 }
 
-pub fn build_router<M, P>(state: Arc<ServerState<M, P>>) -> Router
+pub fn build_router<M, P>(state: Arc<ServerState<M, P>>, pairing_store: PairingTokenStore) -> Router
+where
+    M: ManifestStore + 'static,
+    P: PeerStore + 'static,
+{
+    build_transfer_router(state.clone()).merge(build_pairing_router(Arc::new(PairingState::new(
+        state,
+        pairing_store,
+    ))))
+}
+
+pub fn build_transfer_router<M, P>(state: Arc<ServerState<M, P>>) -> Router
 where
     M: ManifestStore + 'static,
     P: PeerStore + 'static,
 {
     Router::new()
         .route("/v2/status", get(handlers::status::<M, P>))
-        .route("/v2/pair/complete", post(handlers::pair_complete::<M, P>))
         .route("/v2/session/open", post(handlers::session_open::<M, P>))
         .route(
             "/v2/sync/pull-plan",
@@ -172,6 +195,16 @@ where
             get(handlers::bundle_download::<M, P>).put(handlers::bundle_upload::<M, P>),
         )
         .route("/v2/plans/{plan_id}/commit", post(handlers::commit::<M, P>))
+        .with_state(state)
+}
+
+pub fn build_pairing_router<M, P>(state: Arc<PairingState<M, P>>) -> Router
+where
+    M: ManifestStore + 'static,
+    P: PeerStore + 'static,
+{
+    Router::new()
+        .route("/v2/pair/complete", post(handlers::pair_complete::<M, P>))
         .with_state(state)
 }
 
@@ -299,16 +332,18 @@ mod tests {
     }
 
     fn test_state() -> Arc<ServerState<UnusedManifestStore, UnusedPeerStore>> {
-        let state_dir = std::env::temp_dir().join(format!("ttsync-http-test-{}", Uuid::new_v4()));
-
         Arc::new(ServerState::new(
             DeviceId::new(Uuid::new_v4().to_string()).expect("valid device id"),
             "TT-Sync Test".to_owned(),
             Arc::new(UnusedManifestStore),
             Arc::new(UnusedPeerStore),
             Arc::new(SessionManager::new(SessionManagerConfig::default())),
-            PairingTokenStore::from_state_dir(state_dir),
         ))
+    }
+
+    fn test_pairing_store() -> PairingTokenStore {
+        let state_dir = std::env::temp_dir().join(format!("ttsync-http-test-{}", Uuid::new_v4()));
+        PairingTokenStore::from_state_dir(state_dir)
     }
 
     fn pull_plan_body_at_least(min_size: usize) -> String {
@@ -332,7 +367,7 @@ mod tests {
     }
 
     async fn post_plan(path: &str, body: String) -> StatusCode {
-        let app = build_router(test_state());
+        let app = build_transfer_router(test_state());
         let response = app
             .oneshot(
                 Request::builder()
@@ -350,7 +385,7 @@ mod tests {
 
     #[tokio::test]
     async fn status_reports_datasets_and_profiles_separately() {
-        let app = build_router(test_state());
+        let app = build_router(test_state(), test_pairing_store());
         let response = app
             .oneshot(
                 Request::builder()
@@ -386,6 +421,26 @@ mod tests {
         assert!(value.get("device_id").is_none());
         assert!(value.get("device_name").is_none());
         assert!(value.get("spki_sha256").is_none());
+    }
+
+    #[tokio::test]
+    async fn transfer_router_does_not_expose_standard_pairing_route() {
+        let app = build_transfer_router(test_state());
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/v2/pair/complete?token=test")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        r#"{"device_id":"550e8400-e29b-41d4-a716-446655440000","device_name":"Peer","device_pubkey":"x"}"#,
+                    ))
+                    .expect("valid request"),
+            )
+            .await
+            .expect("router response");
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]

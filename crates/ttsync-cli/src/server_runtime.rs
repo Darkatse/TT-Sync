@@ -43,6 +43,7 @@ pub async fn start_server(ctx: &Context) -> Result<RunningServer, CliError> {
     let manifest_store = Arc::new(FsManifestStore::new(mounts.clone()));
     let peer_store = Arc::new(JsonPeerStore::new(ctx.state_dir.clone()));
     let session_manager = Arc::new(SessionManager::new(SessionManagerConfig::default()));
+    let pairing_store = PairingTokenStore::from_state_dir(ctx.state_dir.clone());
 
     let mut status = default_status_response();
     status.device_id = Some(device_id.clone());
@@ -56,7 +57,6 @@ pub async fn start_server(ctx: &Context) -> Result<RunningServer, CliError> {
             manifest_store,
             peer_store,
             session_manager,
-            PairingTokenStore::from_state_dir(ctx.state_dir.clone()),
         )
         .with_status(status),
     );
@@ -68,7 +68,7 @@ pub async fn start_server(ctx: &Context) -> Result<RunningServer, CliError> {
 
     let tls_arc: Arc<dyn TlsProvider> = Arc::new(tls);
 
-    let handle = spawn_server(addr, tls_arc, state).await?;
+    let handle = spawn_server(addr, tls_arc, state, pairing_store).await?;
 
     Ok(RunningServer {
         handle,

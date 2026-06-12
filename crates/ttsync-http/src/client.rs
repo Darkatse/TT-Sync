@@ -37,20 +37,55 @@ pub struct SyncClient {
     base_url: String,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SyncClientHttpVersion {
+    #[default]
+    Default,
+    Http1Only,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SyncClientOptions {
+    pub spki_sha256: Option<String>,
+    pub user_agent: Option<String>,
+    pub http_version: SyncClientHttpVersion,
+}
+
 impl SyncClient {
     /// Create a new client targeting the given base URL.
     ///
     /// `spki_sha256`: the expected SPKI hash for certificate pinning.
     pub fn new(base_url: String, spki_sha256: Option<String>) -> Result<Self, SyncError> {
+        Self::with_options(
+            base_url,
+            SyncClientOptions {
+                spki_sha256,
+                ..SyncClientOptions::default()
+            },
+        )
+    }
+
+    pub fn with_options(base_url: String, options: SyncClientOptions) -> Result<Self, SyncError> {
         let parsed = Url::parse(&base_url).map_err(|e| SyncError::InvalidData(e.to_string()))?;
         validate_base_url(&parsed)?;
 
         let builder = reqwest::Client::builder();
-        let builder = match spki_sha256 {
+        let builder = match options.spki_sha256 {
             Some(expected) => {
-                let config = build_pinned_rustls_config(&expected)?;
+                let mut config = build_pinned_rustls_config(&expected)?;
+                if options.http_version == SyncClientHttpVersion::Http1Only {
+                    config.alpn_protocols = http1_only_alpn_protocols();
+                }
                 builder.use_preconfigured_tls(config)
             }
+            None => builder,
+        };
+        let builder = match options.http_version {
+            SyncClientHttpVersion::Default => builder,
+            SyncClientHttpVersion::Http1Only => builder.http1_only(),
+        };
+        let builder = match options.user_agent {
+            Some(user_agent) => builder.user_agent(user_agent),
             None => builder,
         };
 
@@ -67,6 +102,14 @@ impl SyncClient {
 
     pub fn base_url(&self) -> &str {
         &self.base_url
+    }
+
+    /// Build an absolute endpoint URL under this client's validated base URL.
+    ///
+    /// This is intended for protocol extensions that share the TT-Sync transport
+    /// contract but are not part of the core `/v2/*` route set.
+    pub fn endpoint_url(&self, path: &str) -> Result<Url, SyncError> {
+        endpoint_url(&self.base_url, path)
     }
 
     pub async fn pair_complete(
@@ -91,7 +134,7 @@ impl SyncClient {
     }
 
     pub async fn status(&self) -> Result<StatusResponse, SyncError> {
-        let url = simple_url(&self.base_url, "/v2/status")?;
+        let url = endpoint_url(&self.base_url, "/v2/status")?;
         let response = self
             .http
             .get(url)
@@ -119,7 +162,7 @@ impl SyncClient {
         device_id: &DeviceId,
         ed25519_seed_b64url: &str,
     ) -> Result<SessionOpenResponse, SyncError> {
-        let url = simple_url(&self.base_url, "/v2/session/open")?;
+        let url = endpoint_url(&self.base_url, "/v2/session/open")?;
         let now_ms = now_ms()?;
         let nonce = random_base64url(12);
         let request = SessionOpenRequest {
@@ -166,7 +209,7 @@ impl SyncClient {
         selection: DatasetSelection,
         target_manifest: ManifestV2,
     ) -> Result<SyncPlan, SyncError> {
-        let url = simple_url(&self.base_url, "/v2/sync/pull-plan")?;
+        let url = endpoint_url(&self.base_url, "/v2/sync/pull-plan")?;
         let request = PullPlanRequest {
             mode,
             selection,
@@ -177,7 +220,10 @@ impl SyncClient {
         let response = self
             .http
             .post(url)
-            .header(reqwest::header::AUTHORIZATION, bearer(session_token))
+            .header(
+                reqwest::header::AUTHORIZATION,
+                bearer_auth_value(session_token),
+            )
             .header(reqwest::header::CONTENT_TYPE, "application/json")
             .body(body)
             .send()
@@ -198,7 +244,7 @@ impl SyncClient {
         selection: DatasetSelection,
         source_manifest: ManifestV2,
     ) -> Result<SyncPlan, SyncError> {
-        let url = simple_url(&self.base_url, "/v2/sync/push-plan")?;
+        let url = endpoint_url(&self.base_url, "/v2/sync/push-plan")?;
         let request = PushPlanRequest {
             mode,
             selection,
@@ -209,7 +255,10 @@ impl SyncClient {
         let response = self
             .http
             .post(url)
-            .header(reqwest::header::AUTHORIZATION, bearer(session_token))
+            .header(
+                reqwest::header::AUTHORIZATION,
+                bearer_auth_value(session_token),
+            )
             .header(reqwest::header::CONTENT_TYPE, "application/json")
             .body(body)
             .send()
@@ -234,7 +283,10 @@ impl SyncClient {
         let response = self
             .http
             .get(url)
-            .header(reqwest::header::AUTHORIZATION, bearer(session_token))
+            .header(
+                reqwest::header::AUTHORIZATION,
+                bearer_auth_value(session_token),
+            )
             .send()
             .await
             .map_err(|e| SyncError::Internal(e.to_string()))?;
@@ -252,7 +304,10 @@ impl SyncClient {
         let mut request = self
             .http
             .get(url)
-            .header(reqwest::header::AUTHORIZATION, bearer(session_token))
+            .header(
+                reqwest::header::AUTHORIZATION,
+                bearer_auth_value(session_token),
+            )
             .header(reqwest::header::ACCEPT, BUNDLE_CONTENT_TYPE);
 
         if accept_zstd {
@@ -279,7 +334,10 @@ impl SyncClient {
         let response = self
             .http
             .put(url)
-            .header(reqwest::header::AUTHORIZATION, bearer(session_token))
+            .header(
+                reqwest::header::AUTHORIZATION,
+                bearer_auth_value(session_token),
+            )
             .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
             .body(body)
             .send()
@@ -306,7 +364,10 @@ impl SyncClient {
         let mut request = self
             .http
             .put(url)
-            .header(reqwest::header::AUTHORIZATION, bearer(session_token))
+            .header(
+                reqwest::header::AUTHORIZATION,
+                bearer_auth_value(session_token),
+            )
             .header(reqwest::header::CONTENT_TYPE, BUNDLE_CONTENT_TYPE);
 
         if content_encoding_zstd {
@@ -337,7 +398,10 @@ impl SyncClient {
         let response = self
             .http
             .post(url)
-            .header(reqwest::header::AUTHORIZATION, bearer(session_token))
+            .header(
+                reqwest::header::AUTHORIZATION,
+                bearer_auth_value(session_token),
+            )
             .send()
             .await
             .map_err(|e| SyncError::Internal(e.to_string()))?;
@@ -378,27 +442,27 @@ pub fn ensure_dataset_scope_v1(status: &StatusResponse) -> Result<(), SyncError>
 }
 
 fn pair_complete_url(base_url: &str, token: &str) -> Result<Url, SyncError> {
-    let mut url = simple_url(base_url, "/v2/pair/complete")?;
+    let mut url = endpoint_url(base_url, "/v2/pair/complete")?;
     url.query_pairs_mut().append_pair("token", token);
     Ok(url)
 }
 
 fn file_url(base_url: &str, plan_id: &PlanId, path_b64: &str) -> Result<Url, SyncError> {
-    simple_url(
+    endpoint_url(
         base_url,
         &format!("/v2/plans/{}/files/{}", plan_id.0, path_b64),
     )
 }
 
 fn bundle_url(base_url: &str, plan_id: &PlanId) -> Result<Url, SyncError> {
-    simple_url(base_url, &format!("/v2/plans/{}/bundle", plan_id.0))
+    endpoint_url(base_url, &format!("/v2/plans/{}/bundle", plan_id.0))
 }
 
 fn commit_url(base_url: &str, plan_id: &PlanId) -> Result<Url, SyncError> {
-    simple_url(base_url, &format!("/v2/plans/{}/commit", plan_id.0))
+    endpoint_url(base_url, &format!("/v2/plans/{}/commit", plan_id.0))
 }
 
-fn simple_url(base_url: &str, path: &str) -> Result<Url, SyncError> {
+fn endpoint_url(base_url: &str, path: &str) -> Result<Url, SyncError> {
     let mut url = Url::parse(base_url).map_err(|e| SyncError::InvalidData(e.to_string()))?;
     validate_base_url(&url)?;
 
@@ -414,6 +478,18 @@ fn validate_base_url(url: &Url) -> Result<(), SyncError> {
         ));
     }
 
+    if url.host_str().is_none() {
+        return Err(SyncError::InvalidData(
+            "TT-Sync base_url must include a host".into(),
+        ));
+    }
+
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err(SyncError::InvalidData(
+            "TT-Sync base_url must not include credentials".into(),
+        ));
+    }
+
     if url.path() != "/" || url.query().is_some() || url.fragment().is_some() {
         return Err(SyncError::InvalidData(
             "TT-Sync base_url must not include path, query, or fragment".into(),
@@ -423,11 +499,16 @@ fn validate_base_url(url: &Url) -> Result<(), SyncError> {
     Ok(())
 }
 
-fn bearer(session_token: &SessionToken) -> String {
+pub fn validate_https_origin(value: &str) -> Result<(), SyncError> {
+    let url = Url::parse(value).map_err(|e| SyncError::InvalidData(e.to_string()))?;
+    validate_base_url(&url)
+}
+
+pub fn bearer_auth_value(session_token: &SessionToken) -> String {
     format!("Bearer {}", session_token.as_str())
 }
 
-async fn ensure_success(response: Response, context: &str) -> Result<Response, SyncError> {
+pub async fn ensure_success(response: Response, context: &str) -> Result<Response, SyncError> {
     if response.status().is_success() {
         return Ok(response);
     }
@@ -491,10 +572,14 @@ fn build_signature_verifier() -> Result<Arc<rustls::client::WebPkiServerVerifier
 
 fn default_alpn_protocols() -> Vec<Vec<u8>> {
     if cfg!(target_os = "android") {
-        vec![b"http/1.1".to_vec()]
+        http1_only_alpn_protocols()
     } else {
         vec![b"h2".to_vec(), b"http/1.1".to_vec()]
     }
+}
+
+fn http1_only_alpn_protocols() -> Vec<Vec<u8>> {
+    vec![b"http/1.1".to_vec()]
 }
 
 #[derive(Debug)]
@@ -556,7 +641,10 @@ mod tests {
     use ttsync_contract::dataset::{DATASET_POLICY_VERSION, DATASET_SCOPE_FEATURE_V1};
     use ttsync_contract::status::StatusResponse;
 
-    use super::{SyncClient, ensure_dataset_scope_v1, response_error};
+    use super::{
+        SyncClient, ensure_dataset_scope_v1, http1_only_alpn_protocols, response_error,
+        validate_https_origin,
+    };
     use ttsync_core::error::SyncError;
 
     fn status(features: Vec<String>, version: Option<u32>) -> StatusResponse {
@@ -613,6 +701,28 @@ mod tests {
             SyncClient::new("https://example.test/#x".to_owned(), None),
             Err(SyncError::InvalidData(_))
         ));
+        assert!(matches!(
+            SyncClient::new("https://user@example.test/".to_owned(), None),
+            Err(SyncError::InvalidData(_))
+        ));
+    }
+
+    #[test]
+    fn shared_origin_validator_matches_client_contract() {
+        validate_https_origin("https://example.test:8443").expect("valid origin");
+        assert!(matches!(
+            validate_https_origin("https://example.test/sync"),
+            Err(SyncError::InvalidData(_))
+        ));
+        assert!(matches!(
+            validate_https_origin("https://user@example.test"),
+            Err(SyncError::InvalidData(_))
+        ));
+    }
+
+    #[test]
+    fn http1_policy_uses_http1_only_alpn() {
+        assert_eq!(http1_only_alpn_protocols(), vec![b"http/1.1".to_vec()]);
     }
 
     #[test]
@@ -863,13 +973,13 @@ mod integration_tests {
             manifest_store.clone(),
             peer_store.clone(),
             Arc::new(SessionManager::new(SessionManagerConfig::default())),
-            pairing_store.clone(),
         ));
 
         let handle = spawn_server(
             "127.0.0.1:0".parse::<SocketAddr>().expect("valid addr"),
             Arc::new(tls),
             state,
+            pairing_store.clone(),
         )
         .await
         .expect("spawn server");

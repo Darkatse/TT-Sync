@@ -32,7 +32,6 @@ use ttsync_core::plan::compute_plan_for_policy;
 use ttsync_core::ports::{ManifestStore, PeerStore};
 use uuid::Uuid;
 
-use super::ServerState;
 use super::auth::{authenticate_peer, decode_sync_path_b64, ensure_mode_allowed, header_str};
 use super::bundle::{
     BUNDLE_CONTENT_TYPE, BundleContentEncoding, ExactSizeReader, MAX_BUNDLE_PATH_LEN, accepts_zstd,
@@ -40,6 +39,7 @@ use super::bundle::{
 };
 use super::error::ApiError;
 use super::plans::{PlanDirection, TransferMeta};
+use super::{PairingState, ServerState};
 
 #[derive(serde::Deserialize)]
 pub(super) struct PairQuery {
@@ -57,7 +57,7 @@ where
 }
 
 pub(super) async fn pair_complete<M, P>(
-    State(state): State<Arc<ServerState<M, P>>>,
+    State(state): State<Arc<PairingState<M, P>>>,
     Query(query): Query<PairQuery>,
     Json(request): Json<PairCompleteRequest>,
 ) -> Result<Json<PairCompleteResponse>, ApiError>
@@ -71,11 +71,11 @@ where
     let (grant, response) = complete_pairing(
         &session,
         &request,
-        &state.server_device_id,
-        &state.server_device_name,
+        &state.shared.server_device_id,
+        &state.shared.server_device_name,
     )?;
 
-    state.peer_store.save_peer(grant).await?;
+    state.shared.peer_store.save_peer(grant).await?;
     Ok(Json(response))
 }
 
