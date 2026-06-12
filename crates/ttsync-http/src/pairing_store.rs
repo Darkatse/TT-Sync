@@ -46,11 +46,9 @@ impl PairingTokenStore {
         validate_token(token)?;
 
         let path = self.token_path(token);
-        let taken = self.dir.join(format!(
-            "{}.taken.{}.json",
-            token,
-            Uuid::new_v4().to_string()
-        ));
+        let taken = self
+            .dir
+            .join(format!("{}.taken.{}.json", token, Uuid::new_v4()));
 
         std::fs::rename(&path, &taken).map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {

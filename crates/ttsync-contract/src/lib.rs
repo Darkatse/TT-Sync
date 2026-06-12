@@ -6,4 +6,5 @@ pub mod path;
 pub mod peer;
 pub mod plan;
 pub mod session;
+pub mod status;
 pub mod sync;

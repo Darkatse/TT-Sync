@@ -2,6 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
+#[cfg(target_os = "windows")]
 use base64::Engine;
 
 use crate::Context;

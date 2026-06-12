@@ -7,7 +7,7 @@ use ttsync_fs::layout::WorkspaceMounts;
 use ttsync_fs::manifest_store::FsManifestStore;
 use ttsync_fs::peer_store::JsonPeerStore;
 use ttsync_http::pairing_store::PairingTokenStore;
-use ttsync_http::server::{ServerHandle, ServerState, spawn_server};
+use ttsync_http::server::{ServerHandle, ServerState, default_status_response, spawn_server};
 use ttsync_http::tls::{SelfManagedTls, TlsProvider};
 
 use crate::Context;
@@ -33,6 +33,7 @@ pub async fn start_server(ctx: &Context) -> Result<RunningServer, CliError> {
     let config = config::load_config(&ctx.config_path)?;
     let identity = config::load_or_create_identity(&ctx.state_dir)?;
     let tls = SelfManagedTls::load_or_create(&ctx.state_dir)?;
+    let spki_sha256 = tls.spki_sha256().to_owned();
 
     let mounts = WorkspaceMounts::derive(config.layout, &config.workspace_path)?;
 
@@ -43,14 +44,22 @@ pub async fn start_server(ctx: &Context) -> Result<RunningServer, CliError> {
     let peer_store = Arc::new(JsonPeerStore::new(ctx.state_dir.clone()));
     let session_manager = Arc::new(SessionManager::new(SessionManagerConfig::default()));
 
-    let state = Arc::new(ServerState::new(
-        device_id,
-        identity.device_name.clone(),
-        manifest_store,
-        peer_store,
-        session_manager,
-        PairingTokenStore::from_state_dir(ctx.state_dir.clone()),
-    ));
+    let mut status = default_status_response();
+    status.device_id = Some(device_id.clone());
+    status.device_name = Some(identity.device_name.clone());
+    status.spki_sha256 = Some(spki_sha256.clone());
+
+    let state = Arc::new(
+        ServerState::new(
+            device_id,
+            identity.device_name.clone(),
+            manifest_store,
+            peer_store,
+            session_manager,
+            PairingTokenStore::from_state_dir(ctx.state_dir.clone()),
+        )
+        .with_status(status),
+    );
 
     let addr: SocketAddr = config
         .listen
@@ -58,7 +67,6 @@ pub async fn start_server(ctx: &Context) -> Result<RunningServer, CliError> {
         .map_err(|e| CliError::Config(format!("invalid listen address: {e}")))?;
 
     let tls_arc: Arc<dyn TlsProvider> = Arc::new(tls);
-    let spki_sha256 = tls_arc.spki_sha256().to_owned();
 
     let handle = spawn_server(addr, tls_arc, state).await?;
 

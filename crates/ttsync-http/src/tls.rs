@@ -126,7 +126,7 @@ fn spki_sha256_from_cert(cert: &CertificateDer<'static>) -> Result<String, SyncE
     Ok(URL_SAFE_NO_PAD.encode(digest))
 }
 
-fn write_atomic_text(path: &PathBuf, content: &str) -> Result<(), SyncError> {
+fn write_atomic_text(path: &Path, content: &str) -> Result<(), SyncError> {
     let tmp = atomic_tmp_path(path);
     std::fs::write(&tmp, content).map_err(|e| SyncError::Io(e.to_string()))?;
     rename_overwrite(&tmp, path)

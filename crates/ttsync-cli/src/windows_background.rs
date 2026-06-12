@@ -2,6 +2,7 @@
 
 use crate::Context;
 use crate::config::CliError;
+#[cfg(target_os = "windows")]
 use crate::server_runtime;
 
 #[cfg(target_os = "windows")]
