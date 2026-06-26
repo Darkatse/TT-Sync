@@ -109,16 +109,22 @@ pub struct ClientSyncReport {
 pub struct ClientSyncFailure {
     pub error: SyncError,
     pub local_applied: LocalChangeSummary,
-    pub local_changed: bool,
+    pub local_target_changed: bool,
+    pub remote_maybe_changed: bool,
     pub granted_permissions: Option<Permissions>,
 }
 
 impl ClientSyncFailure {
+    pub fn local_changed(&self) -> bool {
+        self.local_applied.changed() || self.local_target_changed
+    }
+
     fn without_local_change(error: SyncError) -> Self {
         Self {
             error,
             local_applied: LocalChangeSummary::default(),
-            local_changed: false,
+            local_target_changed: false,
+            remote_maybe_changed: false,
             granted_permissions: None,
         }
     }
@@ -126,12 +132,23 @@ impl ClientSyncFailure {
     fn with_local_state(
         error: SyncError,
         local_applied: LocalChangeSummary,
-        local_changed: bool,
+        local_target_changed: bool,
     ) -> Self {
         Self {
             error,
             local_applied,
-            local_changed,
+            local_target_changed,
+            remote_maybe_changed: false,
+            granted_permissions: None,
+        }
+    }
+
+    fn with_remote_maybe_changed(error: SyncError, remote_maybe_changed: bool) -> Self {
+        Self {
+            error,
+            local_applied: LocalChangeSummary::default(),
+            local_target_changed: false,
+            remote_maybe_changed,
             granted_permissions: None,
         }
     }
@@ -437,11 +454,11 @@ where
             .await
             {
                 let local_applied = tracker.summary();
-                let local_changed = local_applied.changed() || error.target_changed();
+                let local_target_changed = error.target_changed();
                 return Err(ClientSyncFailure::with_local_state(
                     error.into_error(),
                     local_applied,
-                    local_changed,
+                    local_target_changed,
                 ));
             }
         } else {
@@ -473,11 +490,11 @@ where
         for sync_path in delete {
             if let Err(error) = self.workspace.delete_file(&sync_path).await {
                 let local_applied = tracker.summary();
-                let local_changed = local_applied.changed() || error.target_changed();
+                let local_target_changed = error.target_changed();
                 return Err(ClientSyncFailure::with_local_state(
                     error.into_error(),
                     local_applied,
-                    local_changed,
+                    local_target_changed,
                 ));
             }
 
@@ -537,10 +554,12 @@ where
         }
 
         let mut first_error = None;
+        let mut local_target_changed = false;
         while in_flight > 0 {
             let joined = match join_set.join_next().await {
                 Some(Ok(Ok(joined))) => Some(joined),
-                Some(Ok(Err(error))) => {
+                Some(Ok(Err((error, target_changed)))) => {
+                    local_target_changed |= target_changed;
                     if first_error.is_none() {
                         first_error = Some(error);
                     }
@@ -548,16 +567,14 @@ where
                 }
                 Some(Err(error)) => {
                     if first_error.is_none() {
-                        first_error = Some((SyncError::Internal(error.to_string()), false));
+                        first_error = Some(SyncError::Internal(error.to_string()));
                     }
                     None
                 }
                 None => {
                     if first_error.is_none() {
-                        first_error = Some((
-                            SyncError::Internal("download join set ended early".into()),
-                            false,
-                        ));
+                        first_error =
+                            Some(SyncError::Internal("download join set ended early".into()));
                     }
                     None
                 }
@@ -598,12 +615,12 @@ where
         }
 
         match first_error {
-            Some((error, local_changed)) => {
+            Some(error) => {
                 let local_applied = tracker.summary();
                 Err(ClientSyncFailure::with_local_state(
                     error,
                     local_applied,
-                    local_applied.changed() || local_changed,
+                    local_target_changed,
                 ))
             }
             None => Ok(()),
@@ -625,6 +642,8 @@ where
         let plan_id = plan.plan_id;
         let transfer_entries = plan.transfer;
         let delete = plan.delete;
+        let files_to_upload = !transfer_entries.is_empty();
+        let files_to_delete = mode == SyncMode::Mirror && !delete.is_empty();
         let files_total = transfer_entries.len();
         let bytes_total = transfer_entries
             .iter()
@@ -673,10 +692,16 @@ where
             .client
             .commit(session_token, &plan_id)
             .await
-            .map_err(ClientSyncFailure::without_local_change)?;
+            .map_err(|error| {
+                ClientSyncFailure::with_remote_maybe_changed(
+                    error,
+                    files_to_upload || files_to_delete,
+                )
+            })?;
         if !commit.ok {
-            return Err(ClientSyncFailure::without_local_change(
+            return Err(ClientSyncFailure::with_remote_maybe_changed(
                 SyncError::Internal("TT-Sync commit returned ok=false".into()),
+                files_to_upload || files_to_delete,
             ));
         }
 
@@ -771,8 +796,10 @@ where
             }
         }
 
-        upload_result.map_err(ClientSyncFailure::without_local_change)?;
-        writer_result.map_err(ClientSyncFailure::without_local_change)
+        upload_result
+            .map_err(|error| ClientSyncFailure::with_remote_maybe_changed(error, files_done > 0))?;
+        writer_result
+            .map_err(|error| ClientSyncFailure::with_remote_maybe_changed(error, files_done > 0))
     }
 
     async fn upload_files<O>(
@@ -812,35 +839,57 @@ where
             in_flight += 1;
         }
 
+        let mut first_error = None;
+        let mut remote_maybe_changed = false;
         while in_flight > 0 {
-            let joined = join_set
-                .join_next()
-                .await
-                .ok_or_else(|| {
-                    ClientSyncFailure::without_local_change(SyncError::Internal(
-                        "upload join set ended early".into(),
-                    ))
-                })?
-                .map_err(|error| {
-                    ClientSyncFailure::without_local_change(SyncError::Internal(error.to_string()))
-                })?
-                .map_err(ClientSyncFailure::without_local_change)?;
+            let joined = match join_set.join_next().await {
+                Some(Ok(Ok(joined))) => Some(joined),
+                Some(Ok(Err((error, target_changed)))) => {
+                    remote_maybe_changed |= target_changed;
+                    if first_error.is_none() {
+                        first_error = Some(error);
+                    }
+                    None
+                }
+                Some(Err(error)) => {
+                    remote_maybe_changed = true;
+                    if first_error.is_none() {
+                        first_error = Some(SyncError::Internal(error.to_string()));
+                    }
+                    None
+                }
+                None => {
+                    if first_error.is_none() {
+                        first_error =
+                            Some(SyncError::Internal("upload join set ended early".into()));
+                    }
+                    None
+                }
+            };
 
             in_flight -= 1;
-            files_done += 1;
-            bytes_done += joined.size_bytes;
+            if let Some(joined) = joined {
+                remote_maybe_changed = true;
 
-            if should_emit_progress(files_done, files_total) {
-                emit(
-                    observer,
-                    SyncDirection::Push,
-                    SyncPhase::Uploading,
-                    ProgressCounts::new(files_done, files_total, bytes_done, bytes_total),
-                    Some(joined.path),
-                );
+                if first_error.is_none() {
+                    files_done += 1;
+                    bytes_done += joined.size_bytes;
+
+                    if should_emit_progress(files_done, files_total) {
+                        emit(
+                            observer,
+                            SyncDirection::Push,
+                            SyncPhase::Uploading,
+                            ProgressCounts::new(files_done, files_total, bytes_done, bytes_total),
+                            Some(joined.path),
+                        );
+                    }
+                }
             }
 
-            if let Some(entry) = upload_iter.next() {
+            if first_error.is_none()
+                && let Some(entry) = upload_iter.next()
+            {
                 spawn_upload_task(
                     &mut join_set,
                     self.client.clone(),
@@ -853,7 +902,13 @@ where
             }
         }
 
-        Ok(())
+        match first_error {
+            Some(error) => Err(ClientSyncFailure::with_remote_maybe_changed(
+                error,
+                remote_maybe_changed,
+            )),
+            None => Ok(()),
+        }
     }
 }
 
@@ -1010,7 +1065,7 @@ fn spawn_download_task<W>(
 }
 
 fn spawn_upload_task<W>(
-    join_set: &mut JoinSet<Result<TransferResult, SyncError>>,
+    join_set: &mut JoinSet<Result<TransferResult, (SyncError, bool)>>,
     client: SyncClient,
     workspace: Arc<W>,
     session_token: SessionToken,
@@ -1020,7 +1075,10 @@ fn spawn_upload_task<W>(
     W: ClientWorkspace + 'static,
 {
     join_set.spawn(async move {
-        let mut source = workspace.read_file(&entry.path).await?;
+        let mut source = workspace
+            .read_file(&entry.path)
+            .await
+            .map_err(|error| (error, false))?;
         let (reader, mut writer) = tokio::io::duplex(BUNDLE_STREAM_BUFFER_SIZE);
         let size_bytes = entry.size_bytes;
         let writer_task = tokio::spawn(async move {
@@ -1035,10 +1093,10 @@ fn spawn_upload_task<W>(
             .await;
         let writer_result = writer_task
             .await
-            .map_err(|error| SyncError::Internal(error.to_string()))?;
+            .map_err(|error| (SyncError::Internal(error.to_string()), true))?;
 
-        upload_result?;
-        writer_result?;
+        upload_result.map_err(|error| (error, true))?;
+        writer_result.map_err(|error| (error, true))?;
 
         Ok(TransferResult {
             path: entry.path.to_string(),
@@ -1099,32 +1157,94 @@ impl LocalChangeTracker {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
     use std::io::Cursor;
     use std::net::SocketAddr;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     use base64::Engine;
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use tokio::io::AsyncReadExt;
+    use tokio::time::sleep;
     use ttsync_contract::dataset::DatasetSelection;
     use ttsync_contract::manifest::{ManifestEntryV2, ManifestV2};
     use ttsync_contract::path::SyncPath;
     use ttsync_contract::peer::{DeviceId, PeerGrant, Permissions};
     use ttsync_core::crypto::device_pubkey_b64url;
     use ttsync_core::dataset::ResolvedDatasetPolicy;
+    use ttsync_core::error::SyncError;
     use ttsync_core::ports::{ManifestStore, PeerStore};
     use ttsync_core::session::{SessionManager, SessionManagerConfig};
     use ttsync_http::client::SyncClient;
     use ttsync_http::pairing_store::PairingTokenStore;
-    use ttsync_http::server::{ServerState, spawn_server};
+    use ttsync_http::server::{ServerHandle, ServerState, spawn_server};
     use ttsync_http::tls::{SelfManagedTls, TlsProvider};
 
     use ttsync_contract::sync::SyncMode;
 
-    use super::{ClientSyncEngine, ClientSyncOptions, ClientSyncTarget, NoopSyncObserver};
+    use crate::workspace::{ClientWorkspace, WorkspaceWriteError};
+
+    use super::{
+        BundleTransport, ClientSyncEngine, ClientSyncFailure, ClientSyncOptions, ClientSyncTarget,
+        LocalChangeSummary, NoopSyncObserver,
+    };
+
+    #[test]
+    fn failure_preserves_local_target_change_with_counted_local_changes() {
+        let failure = ClientSyncFailure::with_local_state(
+            SyncError::Io("rename failed".into()),
+            LocalChangeSummary {
+                files_written: 1,
+                bytes_written: 7,
+                files_deleted: 0,
+            },
+            true,
+        );
+
+        assert!(failure.local_changed());
+        assert!(failure.local_target_changed);
+        assert!(!failure.remote_maybe_changed);
+        assert_eq!(failure.local_applied.files_written, 1);
+    }
+
+    #[test]
+    fn failure_permissions_do_not_clear_local_state() {
+        let permissions = Permissions {
+            read: false,
+            write: false,
+            mirror_delete: false,
+        };
+        let failure = ClientSyncFailure::with_local_state(
+            SyncError::Unauthorized("read not granted".into()),
+            LocalChangeSummary {
+                files_written: 1,
+                bytes_written: 7,
+                files_deleted: 0,
+            },
+            true,
+        )
+        .with_permissions(permissions);
+
+        assert_eq!(failure.granted_permissions, Some(permissions));
+        assert!(failure.local_changed());
+        assert!(failure.local_target_changed);
+        assert!(!failure.remote_maybe_changed);
+    }
+
+    #[test]
+    fn remote_failure_does_not_mark_local_state_changed() {
+        let failure = ClientSyncFailure::with_remote_maybe_changed(
+            SyncError::Internal("upload failed".into()),
+            true,
+        );
+
+        assert!(!failure.local_changed());
+        assert!(!failure.local_target_changed);
+        assert!(failure.remote_maybe_changed);
+        assert_eq!(failure.local_applied, LocalChangeSummary::default());
+    }
 
     #[derive(Debug, Clone)]
     struct MemoryFile {
@@ -1135,6 +1255,7 @@ mod tests {
     #[derive(Debug, Default)]
     struct MemoryManifestStore {
         files: Mutex<HashMap<SyncPath, MemoryFile>>,
+        fail_after_write: Mutex<HashSet<SyncPath>>,
     }
 
     impl MemoryManifestStore {
@@ -1146,6 +1267,13 @@ mod tests {
                     modified_ms,
                 },
             );
+        }
+
+        fn fail_after_write(&self, path: &str) {
+            self.fail_after_write
+                .lock()
+                .expect("failures mutex")
+                .insert(SyncPath::new(path.to_owned()).expect("valid sync path"));
         }
 
         fn bytes(&self, path: &str) -> Vec<u8> {
@@ -1230,7 +1358,17 @@ mod tests {
                 self.files
                     .lock()
                     .expect("files mutex")
-                    .insert(path, MemoryFile { bytes, modified_ms });
+                    .insert(path.clone(), MemoryFile { bytes, modified_ms });
+                if self
+                    .fail_after_write
+                    .lock()
+                    .expect("failures mutex")
+                    .remove(&path)
+                {
+                    return Err(ttsync_core::error::SyncError::Io(
+                        "injected write failure after write".into(),
+                    ));
+                }
                 Ok(())
             }
         }
@@ -1245,6 +1383,101 @@ mod tests {
                 self.files.lock().expect("files mutex").remove(&path);
                 Ok(())
             }
+        }
+    }
+
+    impl ClientWorkspace for MemoryManifestStore {
+        fn scan(
+            &self,
+            policy: ResolvedDatasetPolicy,
+        ) -> impl std::future::Future<Output = Result<ManifestV2, SyncError>> + Send {
+            ManifestStore::scan(self, policy)
+        }
+
+        fn read_file(
+            &self,
+            path: &SyncPath,
+        ) -> impl std::future::Future<
+            Output = Result<Box<dyn tokio::io::AsyncRead + Send + Unpin>, SyncError>,
+        > + Send {
+            ManifestStore::read_file(self, path)
+        }
+
+        async fn write_file(
+            &self,
+            path: &SyncPath,
+            data: &mut (dyn tokio::io::AsyncRead + Send + Unpin),
+            modified_ms: u64,
+        ) -> Result<(), WorkspaceWriteError> {
+            let path = path.clone();
+            let mut bytes = Vec::new();
+            data.read_to_end(&mut bytes).await.map_err(|error| {
+                WorkspaceWriteError::unchanged(SyncError::Io(error.to_string()))
+            })?;
+            self.files
+                .lock()
+                .expect("files mutex")
+                .insert(path.clone(), MemoryFile { bytes, modified_ms });
+            if self
+                .fail_after_write
+                .lock()
+                .expect("failures mutex")
+                .remove(&path)
+            {
+                return Err(WorkspaceWriteError::changed(SyncError::Io(
+                    "injected write failure after write".into(),
+                )));
+            }
+            Ok(())
+        }
+
+        async fn delete_file(&self, path: &SyncPath) -> Result<(), WorkspaceWriteError> {
+            self.files.lock().expect("files mutex").remove(path);
+            Ok(())
+        }
+    }
+
+    #[derive(Debug, Default)]
+    struct FailingPullWorkspace;
+
+    impl ClientWorkspace for FailingPullWorkspace {
+        async fn scan(&self, _policy: ResolvedDatasetPolicy) -> Result<ManifestV2, SyncError> {
+            Ok(ManifestV2 {
+                entries: Vec::new(),
+            })
+        }
+
+        async fn read_file(
+            &self,
+            _path: &SyncPath,
+        ) -> Result<Box<dyn tokio::io::AsyncRead + Send + Unpin>, SyncError> {
+            Err(SyncError::NotFound("not used by pull test".into()))
+        }
+
+        async fn write_file(
+            &self,
+            path: &SyncPath,
+            data: &mut (dyn tokio::io::AsyncRead + Send + Unpin),
+            _modified_ms: u64,
+        ) -> Result<(), WorkspaceWriteError> {
+            if path.as_str().ends_with("/a.jsonl") {
+                return Err(WorkspaceWriteError::unchanged(SyncError::Io(
+                    "unchanged write failure".into(),
+                )));
+            }
+
+            sleep(Duration::from_millis(25)).await;
+            let mut bytes = Vec::new();
+            data.read_to_end(&mut bytes)
+                .await
+                .map_err(|error| WorkspaceWriteError::changed(SyncError::Io(error.to_string())))?;
+            Err(WorkspaceWriteError::changed(SyncError::Io(
+                "changed write failure".into(),
+            )))
+        }
+
+        async fn delete_file(&self, _path: &SyncPath) -> Result<(), WorkspaceWriteError> {
+            Ok(())
         }
     }
 
@@ -1314,16 +1547,15 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn engine_pulls_and_pushes_with_bundle_zstd() {
+    async fn spawn_test_server(
+        server_files: Arc<MemoryManifestStore>,
+        permissions: Permissions,
+    ) -> (ServerHandle, PathBuf, String, DeviceId, String) {
         let state_dir = unique_temp_dir();
         let tls = SelfManagedTls::load_or_create(&state_dir).expect("TLS identity");
         let spki_sha256 = tls.spki_sha256().to_owned();
 
-        let server_files = Arc::new(MemoryManifestStore::default());
-        server_files.insert("default-user/chats/server.jsonl", b"server", 1234);
         let peer_store = Arc::new(MemoryPeerStore::default());
-
         let client_device_id = DeviceId::new("00000000-0000-4000-8000-000000000020".to_owned())
             .expect("valid device id");
         let client_seed = URL_SAFE_NO_PAD.encode([9u8; 32]);
@@ -1334,11 +1566,7 @@ mod tests {
             device_id: client_device_id.clone(),
             device_name: "TT-Sync Test Client".to_owned(),
             public_key: client_pubkey,
-            permissions: Permissions {
-                read: true,
-                write: true,
-                mirror_delete: true,
-            },
+            permissions,
             paired_at_ms: 1,
             last_sync_ms: None,
         });
@@ -1348,7 +1576,7 @@ mod tests {
         let state = Arc::new(ServerState::new(
             server_device_id,
             "TT-Sync Test Server".to_owned(),
-            server_files.clone(),
+            server_files,
             peer_store,
             Arc::new(SessionManager::new(SessionManagerConfig::default())),
         ));
@@ -1361,6 +1589,30 @@ mod tests {
         )
         .await
         .expect("spawn server");
+
+        (
+            handle,
+            state_dir,
+            spki_sha256,
+            client_device_id,
+            client_seed,
+        )
+    }
+
+    fn full_permissions() -> Permissions {
+        Permissions {
+            read: true,
+            write: true,
+            mirror_delete: true,
+        }
+    }
+
+    #[tokio::test]
+    async fn engine_pulls_and_pushes_with_bundle_zstd() {
+        let server_files = Arc::new(MemoryManifestStore::default());
+        server_files.insert("default-user/chats/server.jsonl", b"server", 1234);
+        let (handle, state_dir, spki_sha256, client_device_id, client_seed) =
+            spawn_test_server(server_files.clone(), full_permissions()).await;
 
         let client_files = Arc::new(MemoryManifestStore::default());
         client_files.insert("default-user/chats/stale.jsonl", b"stale", 1111);
@@ -1415,6 +1667,118 @@ mod tests {
             server_files.bytes("default-user/chats/client.jsonl"),
             b"client"
         );
+
+        handle.shutdown();
+        let _ = std::fs::remove_dir_all(state_dir);
+    }
+
+    #[tokio::test]
+    async fn pull_failure_preserves_later_local_target_change() {
+        let server_files = Arc::new(MemoryManifestStore::default());
+        server_files.insert("default-user/chats/a.jsonl", b"a", 1234);
+        server_files.insert("default-user/chats/b.jsonl", b"b", 1235);
+        let (handle, state_dir, spki_sha256, client_device_id, client_seed) =
+            spawn_test_server(server_files, full_permissions()).await;
+
+        let client = SyncClient::new(
+            format!("https://127.0.0.1:{}", handle.addr.port()),
+            Some(spki_sha256),
+        )
+        .expect("client");
+        let workspace = Arc::new(FailingPullWorkspace);
+        let engine = ClientSyncEngine::new(
+            client,
+            workspace,
+            ClientSyncTarget {
+                device_id: client_device_id,
+                ed25519_seed_b64url: client_seed,
+            },
+            "TT-Sync test server",
+        );
+        let options = ClientSyncOptions {
+            mode: SyncMode::Incremental,
+            selection: DatasetSelection::legacy_v2(),
+            require_bundle_zstd: false,
+            file_concurrency: 2,
+        };
+        let (_, _, session_token) = engine.prepare_session(&options).await.expect("session");
+        let plan = engine
+            .client
+            .pull_plan(
+                &session_token,
+                options.mode,
+                options.selection.clone(),
+                ManifestV2 {
+                    entries: Vec::new(),
+                },
+            )
+            .await
+            .expect("plan");
+
+        let failure = engine
+            .apply_pull_plan(
+                plan,
+                options.mode,
+                BundleTransport {
+                    prefer_bundle: false,
+                    use_zstd: false,
+                },
+                &session_token,
+                options.file_concurrency,
+                &NoopSyncObserver,
+            )
+            .await
+            .expect_err("pull should fail");
+
+        assert!(failure.local_changed());
+        assert!(failure.local_target_changed);
+        assert!(!failure.remote_maybe_changed);
+
+        handle.shutdown();
+        let _ = std::fs::remove_dir_all(state_dir);
+    }
+
+    #[tokio::test]
+    async fn direct_push_failure_reports_remote_change_without_local_change() {
+        let server_files = Arc::new(MemoryManifestStore::default());
+        server_files.fail_after_write("default-user/chats/client.jsonl");
+        let (handle, state_dir, spki_sha256, client_device_id, client_seed) =
+            spawn_test_server(server_files.clone(), full_permissions()).await;
+
+        let client_files = Arc::new(MemoryManifestStore::default());
+        client_files.insert("default-user/chats/client.jsonl", b"client", 2345);
+        let client = SyncClient::new(
+            format!("https://127.0.0.1:{}", handle.addr.port()),
+            Some(spki_sha256),
+        )
+        .expect("client");
+        let engine = ClientSyncEngine::new(
+            client,
+            client_files,
+            ClientSyncTarget {
+                device_id: client_device_id,
+                ed25519_seed_b64url: client_seed,
+            },
+            "TT-Sync test server",
+        );
+
+        let failure = engine
+            .direct_push(
+                ClientSyncOptions {
+                    mode: SyncMode::Incremental,
+                    selection: DatasetSelection::legacy_v2(),
+                    require_bundle_zstd: true,
+                    file_concurrency: 2,
+                },
+                &NoopSyncObserver,
+            )
+            .await
+            .expect_err("push should fail");
+
+        assert!(server_files.contains("default-user/chats/client.jsonl"));
+        assert!(!failure.local_changed());
+        assert!(!failure.local_target_changed);
+        assert!(failure.remote_maybe_changed);
 
         handle.shutdown();
         let _ = std::fs::remove_dir_all(state_dir);
