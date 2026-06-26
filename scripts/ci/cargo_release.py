@@ -20,6 +20,7 @@ PACKAGE_ORDER = [
     "ttsync-core",
     "ttsync-fs",
     "ttsync-http",
+    "ttsync-client",
     "tt-sync",
 ]
 INTERNAL_DEPENDENCIES = [
@@ -27,6 +28,7 @@ INTERNAL_DEPENDENCIES = [
     "ttsync-core",
     "ttsync-fs",
     "ttsync-http",
+    "ttsync-client",
 ]
 
 
