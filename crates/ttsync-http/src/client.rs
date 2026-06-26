@@ -756,7 +756,7 @@ mod integration_tests {
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use reqwest::Body;
     use tokio::io::AsyncReadExt;
-    use ttsync_contract::dataset::DatasetSelection;
+    use ttsync_contract::dataset::{DATASET_POLICY_VERSION, DatasetSelection};
     use ttsync_contract::manifest::{ManifestEntryV2, ManifestV2};
     use ttsync_contract::pair::PairCompleteRequest;
     use ttsync_contract::path::SyncPath;
@@ -773,6 +773,13 @@ mod integration_tests {
     use crate::pairing_store::PairingTokenStore;
     use crate::server::{ServerState, spawn_server};
     use crate::tls::{SelfManagedTls, TlsProvider};
+
+    fn chat_selection() -> DatasetSelection {
+        DatasetSelection::new(
+            DATASET_POLICY_VERSION,
+            vec!["chat.character.history".to_owned()],
+        )
+    }
 
     #[derive(Debug, Clone)]
     struct MemoryFile {
@@ -1017,7 +1024,7 @@ mod integration_tests {
             .open_session(&client_device_id, &client_seed)
             .await
             .expect("open session");
-        let selection = DatasetSelection::legacy_v2();
+        let selection = chat_selection();
 
         let pull_plan = client
             .pull_plan(
@@ -1095,7 +1102,7 @@ mod integration_tests {
             .push_plan(
                 &session.session_token,
                 SyncMode::Incremental,
-                DatasetSelection::legacy_v2(),
+                chat_selection(),
                 ManifestV2 {
                     entries: vec![
                         ManifestEntryV2 {

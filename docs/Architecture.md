@@ -75,7 +75,7 @@ This crate is the shared language between TT-Sync and TauriTavern. It must be us
 | `SyncPhase` | Enum: `Scanning`, `Diffing`, `Downloading`, `Uploading`, `Deleting`. |
 | `PairUri` | Structured pair URI builder/parser: `tauritavern://tt-sync/pair?v=2&url=...&token=...&exp=...&spki=...` |
 | `CanonicalRequest` | Builder for the v2 canonical signature format. |
-| `DatasetSelection` | Wire-level selected dataset ids + policy version. Missing selection defaults to legacy v2 scope for old-client safety. |
+| `DatasetSelection` | Wire-level selected dataset ids + policy version. Plan requests must include it explicitly; missing selection is rejected. |
 
 #### Design Rules
 
@@ -118,7 +118,6 @@ pub trait PeerStore: Send + Sync {
 | `plan` | Compute pull-plan and push-plan diffs given source and target manifests. |
 | `bundle` | Shared bundle framing helpers and capability constants. |
 | `dataset` | Versioned DatasetPolicy split into catalog, public profiles, path exclusions, runtime eligibility helpers, and scope-aware delete boundaries. |
-| `scope` | Compatibility view for the original fixed v2 scope. New code should use `dataset`. |
 
 #### Error Type
 
@@ -284,9 +283,9 @@ sequenceDiagram
     S-->>C: 200 { session_token }
 
     C->>C: Scan local manifest
-    C->>S: POST /v2/sync/pull-plan { mode, target_manifest }
+    C->>S: POST /v2/sync/pull-plan { mode, selection, target_manifest }
     S->>S: Scan server manifest, compute diff
-    S-->>C: 200 { plan_id, download[], delete[], bytes_total }
+    S-->>C: 200 { plan_id, selection, download[], delete[], bytes_total }
 
     loop for each file in download[]
         C->>S: GET /v2/plans/{plan_id}/files/{path_b64}
@@ -310,9 +309,9 @@ sequenceDiagram
     S-->>C: 200 { session_token }
 
     C->>C: Scan local manifest
-    C->>S: POST /v2/sync/push-plan { mode, source_manifest }
+    C->>S: POST /v2/sync/push-plan { mode, selection, source_manifest }
     S->>S: Scan server manifest, compute diff
-    S-->>C: 200 { plan_id, upload[], delete[], bytes_total }
+    S-->>C: 200 { plan_id, selection, upload[], delete[], bytes_total }
 
     loop for each file in upload[]
         C->>S: PUT /v2/plans/{plan_id}/files/{path_b64}
@@ -362,7 +361,7 @@ Layout adaptation (layout mode + derived mount points) is a `ttsync-fs` concern,
 |-----------|------------------|
 | `provided-cert` TLS mode | `TlsMode` trait in `ttsync-http` |
 | `behind-proxy` TLS mode | `TlsMode` trait in `ttsync-http` |
-| Custom scope overlays (include/exclude rules) | `scope` module in `ttsync-core` |
+| Custom dataset overlays (include/exclude rules) | `ttsync-core::dataset` policy/catalog layer |
 | BLAKE3 content verification | `ManifestEntryV2.content_hash` field + scanner option in `ttsync-fs` |
 | TauriTavern Tauri adapter | Implements `ttsync-client::SyncObserver` → emits `lan_sync:*` Tauri events |
 | WebSocket/SSE notifications | Additional routes in `ttsync-http` server |

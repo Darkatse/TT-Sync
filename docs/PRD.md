@@ -85,13 +85,13 @@ LAN Sync's current architecture (plain HTTP, HMAC shared-secret auth, "notify pe
 
 ### 4.5 Dataset Scope (v2)
 
-TT-Sync v2 ships with a **single curated dataset** (fixed allowlist). It is not “sync every file under disk”.
+TT-Sync v2 syncs an explicit `DatasetSelection`. It is not “sync every file under disk”.
 
-- Included roots (directories + individual files) are defined in `ttsync-core::scope`.
+- Dataset ids, profiles, roots, files, exclusions, and delete boundaries are defined in `ttsync-core::dataset`.
 - Explicit exclusion: `default-user/user/lan-sync` (sync-engine local state).
-- `default-user/secrets.json` is **included** and is expected to sync across devices (protected by TLS + pairing).
+- `secrets.api_keys` is available as an explicit dataset id, but it is not part of the TauriTavern default selection.
 
-**Extension point** (post-MVP): user-defined include/exclude overlay rules on top of the default dataset.
+**Extension point** (post-MVP): user-defined include/exclude overlay rules on top of resolved dataset policy.
 
 ### 4.6 Layout Mode (filesystem mapping)
 

@@ -8,8 +8,8 @@ pub use path::is_excluded;
 pub use policy::ResolvedDatasetPolicy;
 pub use profile::{
     AGENT_RUN_HISTORY_FULL_PROFILE_ID, TAURI_TAVERN_DEFAULT_PROFILE_ID,
-    TAURI_TAVERN_FULL_PROFILE_ID, legacy_v2_selection, supported_dataset_ids,
-    supported_profile_ids, tauri_tavern_default_selection, tauri_tavern_full_selection,
+    TAURI_TAVERN_FULL_PROFILE_ID, supported_dataset_ids, supported_profile_ids,
+    tauri_tavern_default_selection, tauri_tavern_full_selection,
 };
 pub use runtime::{
     agent_run_json_is_terminal, is_agent_run_index_file, is_agent_run_root_dir,
@@ -21,17 +21,6 @@ mod tests {
     use ttsync_contract::dataset::{DATASET_POLICY_VERSION, DatasetSelection};
 
     use super::*;
-
-    #[test]
-    fn legacy_selection_preserves_old_scope_and_secrets() {
-        let policy = ResolvedDatasetPolicy::legacy_v2();
-
-        assert!(policy.contains_path("default-user/chats/alice/chat.jsonl"));
-        assert!(policy.contains_path("default-user/user/images/pic.png"));
-        assert!(policy.contains_path("default-user/secrets.json"));
-        assert!(!policy.contains_path("_tauritavern/agent-profiles/profiles/writer.json"));
-        assert!(!policy.contains_path("default-user/user/lan-sync/config.json"));
-    }
 
     #[test]
     fn tauri_tavern_default_includes_agent_continuity_without_secrets() {
@@ -74,6 +63,7 @@ mod tests {
         assert!(public_ids.contains(&"chat.character.history".to_owned()));
         assert!(public_ids.contains(&"agent.profiles".to_owned()));
         assert!(!public_ids.contains(&"legacy.user".to_owned()));
+        assert!(!public_ids.contains(&"legacy.v2".to_owned()));
     }
 
     #[test]

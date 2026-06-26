@@ -5,25 +5,12 @@ use crate::dataset::runtime::{
     is_agent_workspace_component_path,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum DatasetVisibility {
-    Public,
-    Internal,
-}
-
 #[derive(Debug, Clone, Copy)]
 pub(super) struct DatasetDefinition {
     pub(super) id: &'static str,
-    pub(super) visibility: DatasetVisibility,
     pub(super) scan_roots: &'static [&'static str],
     pub(super) files: &'static [&'static str],
     pub(super) rules: &'static [DatasetRule],
-}
-
-impl DatasetDefinition {
-    pub(super) fn is_public(self) -> bool {
-        self.visibility == DatasetVisibility::Public
-    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -73,7 +60,6 @@ pub(super) fn dataset_definition(id: &str) -> Option<&'static DatasetDefinition>
 pub(super) fn public_dataset_ids() -> Vec<String> {
     DATASETS
         .iter()
-        .filter(|definition| definition.is_public())
         .map(|definition| definition.id.to_owned())
         .collect()
 }
@@ -85,7 +71,6 @@ macro_rules! public_dataset {
     ($id:literal, dirs: [$($dir:literal),* $(,)?], files: [$($file:literal),* $(,)?]) => {
         DatasetDefinition {
             id: $id,
-            visibility: DatasetVisibility::Public,
             scan_roots: &[$($dir),*],
             files: &[$($file),*],
             rules: &[$(DatasetRule::Prefix($dir)),*],
@@ -97,22 +82,9 @@ macro_rules! public_dataset {
     ($id:literal, files: [$($file:literal),* $(,)?]) => {
         DatasetDefinition {
             id: $id,
-            visibility: DatasetVisibility::Public,
             scan_roots: EMPTY_DIRS,
             files: &[$($file),*],
             rules: &[],
-        }
-    };
-}
-
-macro_rules! internal_dataset {
-    ($id:literal, dirs: [$($dir:literal),* $(,)?]) => {
-        DatasetDefinition {
-            id: $id,
-            visibility: DatasetVisibility::Internal,
-            scan_roots: &[$($dir),*],
-            files: EMPTY_FILES,
-            rules: &[$(DatasetRule::Prefix($dir)),*],
         }
     };
 }
@@ -152,7 +124,6 @@ pub(super) const DATASETS: &[DatasetDefinition] = &[
     public_dataset!("user.workflows", dirs: ["default-user/user/workflows"]),
     public_dataset!("vectors", dirs: ["default-user/vectors"]),
     public_dataset!("backups", dirs: ["default-user/backups"]),
-    internal_dataset!("legacy.user", dirs: ["default-user/user"]),
     public_dataset!("extensions.local", dirs: ["default-user/extensions"]),
     public_dataset!("extensions.third_party", dirs: ["extensions/third-party"]),
     public_dataset!(
@@ -171,14 +142,12 @@ pub(super) const DATASETS: &[DatasetDefinition] = &[
     ),
     DatasetDefinition {
         id: "agent.persistent_state",
-        visibility: DatasetVisibility::Public,
         scan_roots: &["_tauritavern/agent-workspaces/chats"],
         files: EMPTY_FILES,
         rules: &[DatasetRule::AgentWorkspaceComponent("persistent-states")],
     },
     DatasetDefinition {
         id: "agent.run_journal",
-        visibility: DatasetVisibility::Public,
         scan_roots: &[
             "_tauritavern/agent-workspaces/index/runs",
             "_tauritavern/agent-workspaces/chats",
@@ -192,7 +161,6 @@ pub(super) const DATASETS: &[DatasetDefinition] = &[
     },
     DatasetDefinition {
         id: "agent.run_context",
-        visibility: DatasetVisibility::Public,
         scan_roots: &["_tauritavern/agent-workspaces/chats"],
         files: EMPTY_FILES,
         rules: &[
@@ -203,7 +171,6 @@ pub(super) const DATASETS: &[DatasetDefinition] = &[
     },
     DatasetDefinition {
         id: "agent.run_workspace_projection",
-        visibility: DatasetVisibility::Public,
         scan_roots: &["_tauritavern/agent-workspaces/chats"],
         files: EMPTY_FILES,
         rules: &[
@@ -214,7 +181,6 @@ pub(super) const DATASETS: &[DatasetDefinition] = &[
     },
     DatasetDefinition {
         id: "agent.run_tool_io",
-        visibility: DatasetVisibility::Public,
         scan_roots: &["_tauritavern/agent-workspaces/chats"],
         files: EMPTY_FILES,
         rules: &[
@@ -225,35 +191,30 @@ pub(super) const DATASETS: &[DatasetDefinition] = &[
     },
     DatasetDefinition {
         id: "agent.workspace_outputs",
-        visibility: DatasetVisibility::Public,
         scan_roots: &["_tauritavern/agent-workspaces/chats"],
         files: EMPTY_FILES,
         rules: &[DatasetRule::AgentRunComponent("output")],
     },
     DatasetDefinition {
         id: "agent.workspace_scratch",
-        visibility: DatasetVisibility::Public,
         scan_roots: &["_tauritavern/agent-workspaces/chats"],
         files: EMPTY_FILES,
         rules: &[DatasetRule::AgentRunComponent("scratch")],
     },
     DatasetDefinition {
         id: "agent.tasks",
-        visibility: DatasetVisibility::Public,
         scan_roots: &["_tauritavern/agent-workspaces/chats"],
         files: EMPTY_FILES,
         rules: &[DatasetRule::AgentRunComponent("tasks")],
     },
     DatasetDefinition {
         id: "agent.model_responses",
-        visibility: DatasetVisibility::Public,
         scan_roots: &["_tauritavern/agent-workspaces/chats"],
         files: EMPTY_FILES,
         rules: &[DatasetRule::AgentRunComponent("model-responses")],
     },
     DatasetDefinition {
         id: "agent.checkpoints",
-        visibility: DatasetVisibility::Public,
         scan_roots: &["_tauritavern/agent-workspaces/chats"],
         files: EMPTY_FILES,
         rules: &[DatasetRule::AgentRunComponent("checkpoints")],

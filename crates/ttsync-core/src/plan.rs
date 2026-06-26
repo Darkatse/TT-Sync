@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
+use ttsync_contract::dataset::DatasetSelection;
 use ttsync_contract::manifest::ManifestV2;
 use ttsync_contract::plan::{PlanId, SyncPlan};
 use ttsync_contract::sync::SyncMode;
@@ -14,11 +15,12 @@ use crate::error::SyncError;
 /// - `mode`: whether to include deletions for files missing on the source side.
 ///
 /// Returns a plan describing which files to transfer and (if mirror mode) which to delete.
-pub fn compute_plan(
+fn compute_plan(
     plan_id: PlanId,
     source: &ManifestV2,
     target: &ManifestV2,
     mode: SyncMode,
+    selection: DatasetSelection,
 ) -> SyncPlan {
     let source_index: HashMap<&str, ()> = source
         .entries
@@ -61,7 +63,7 @@ pub fn compute_plan(
 
     SyncPlan {
         plan_id,
-        selection: None,
+        selection,
         transfer,
         delete,
         files_total,
@@ -79,12 +81,11 @@ pub fn compute_plan_for_policy(
     validate_manifest_scope(source, policy)?;
     validate_manifest_scope(target, policy)?;
 
-    let mut plan = compute_plan(plan_id, source, target, mode);
+    let mut plan = compute_plan(plan_id, source, target, mode, policy.selection().clone());
     if mode == SyncMode::Mirror {
         plan.delete
             .retain(|path| policy.allows_delete(path.as_str()));
     }
-    plan.selection = Some(policy.selection().clone());
     validate_plan_scope(&plan, policy)?;
     Ok(plan)
 }
@@ -93,7 +94,7 @@ pub fn validate_plan_scope(
     plan: &SyncPlan,
     policy: &ResolvedDatasetPolicy,
 ) -> Result<(), SyncError> {
-    if plan.selection.as_ref() != Some(policy.selection()) {
+    if &plan.selection != policy.selection() {
         return Err(SyncError::InvalidData(
             "sync plan dataset selection does not match the requested policy".to_owned(),
         ));
@@ -196,16 +197,23 @@ mod tests {
         }
     }
 
+    fn dataset_selection(ids: &[&str]) -> DatasetSelection {
+        DatasetSelection::new(
+            ttsync_contract::dataset::DATASET_POLICY_VERSION,
+            ids.iter().map(|id| (*id).to_owned()).collect(),
+        )
+    }
+
     #[test]
     fn incremental_skips_unchanged_files() {
         let source = ManifestV2 {
             entries: vec![
-                entry("default-user/a.json", 100, 1000),
-                entry("default-user/b.json", 200, 2000),
+                entry("default-user/chats/alice/a.jsonl", 100, 1000),
+                entry("default-user/chats/alice/b.jsonl", 200, 2000),
             ],
         };
         let target = ManifestV2 {
-            entries: vec![entry("default-user/a.json", 100, 1000)],
+            entries: vec![entry("default-user/chats/alice/a.jsonl", 100, 1000)],
         };
 
         let plan = compute_plan(
@@ -213,36 +221,46 @@ mod tests {
             &source,
             &target,
             SyncMode::Incremental,
+            dataset_selection(&["chat.character.history"]),
         );
         assert_eq!(plan.files_total, 1);
-        assert_eq!(plan.transfer[0].path.as_str(), "default-user/b.json");
+        assert_eq!(
+            plan.transfer[0].path.as_str(),
+            "default-user/chats/alice/b.jsonl"
+        );
         assert!(plan.delete.is_empty());
     }
 
     #[test]
     fn mirror_includes_deletions() {
         let source = ManifestV2 {
-            entries: vec![entry("default-user/a.json", 100, 1000)],
+            entries: vec![entry("default-user/chats/alice/a.jsonl", 100, 1000)],
         };
         let target = ManifestV2 {
             entries: vec![
-                entry("default-user/a.json", 100, 1000),
-                entry("default-user/old.json", 50, 500),
+                entry("default-user/chats/alice/a.jsonl", 100, 1000),
+                entry("default-user/chats/alice/old.jsonl", 50, 500),
             ],
         };
 
-        let plan = compute_plan(PlanId("test".into()), &source, &target, SyncMode::Mirror);
+        let plan = compute_plan(
+            PlanId("test".into()),
+            &source,
+            &target,
+            SyncMode::Mirror,
+            dataset_selection(&["chat.character.history"]),
+        );
         assert_eq!(plan.files_total, 0);
         assert_eq!(plan.delete.len(), 1);
-        assert_eq!(plan.delete[0].as_str(), "default-user/old.json");
+        assert_eq!(
+            plan.delete[0].as_str(),
+            "default-user/chats/alice/old.jsonl"
+        );
     }
 
     #[test]
     fn policy_plan_rejects_manifest_entries_outside_selection() {
-        let selection = DatasetSelection::new(
-            ttsync_contract::dataset::DATASET_POLICY_VERSION,
-            vec!["chat.character.history".to_owned()],
-        );
+        let selection = dataset_selection(&["chat.character.history"]);
         let policy = ResolvedDatasetPolicy::from_selection(&selection).unwrap();
         let source = ManifestV2 { entries: vec![] };
         let target = ManifestV2 {
@@ -262,10 +280,7 @@ mod tests {
 
     #[test]
     fn policy_plan_deletes_only_selected_scope_entries() {
-        let selection = DatasetSelection::new(
-            ttsync_contract::dataset::DATASET_POLICY_VERSION,
-            vec!["chat.character.history".to_owned()],
-        );
+        let selection = dataset_selection(&["chat.character.history"]);
         let policy = ResolvedDatasetPolicy::from_selection(&selection).unwrap();
         let source = ManifestV2 { entries: vec![] };
         let target = ManifestV2 {
@@ -286,19 +301,16 @@ mod tests {
             plan.delete[0].as_str(),
             "default-user/chats/alice/old.jsonl"
         );
-        assert!(plan.selection.is_some());
+        assert_eq!(&plan.selection, policy.selection());
     }
 
     #[test]
-    fn plan_scope_validation_requires_policy_selection() {
-        let selection = DatasetSelection::new(
-            ttsync_contract::dataset::DATASET_POLICY_VERSION,
-            vec!["chat.character.history".to_owned()],
-        );
+    fn plan_scope_validation_rejects_mismatched_policy_selection() {
+        let selection = dataset_selection(&["chat.character.history"]);
         let policy = ResolvedDatasetPolicy::from_selection(&selection).unwrap();
         let plan = SyncPlan {
             plan_id: PlanId("test".into()),
-            selection: None,
+            selection: dataset_selection(&["media.backgrounds"]),
             transfer: vec![entry("default-user/chats/alice/chat.jsonl", 1, 1)],
             delete: vec![],
             files_total: 1,
@@ -310,14 +322,11 @@ mod tests {
 
     #[test]
     fn plan_scope_validation_rejects_duplicate_paths_and_bad_totals() {
-        let selection = DatasetSelection::new(
-            ttsync_contract::dataset::DATASET_POLICY_VERSION,
-            vec!["chat.character.history".to_owned()],
-        );
+        let selection = dataset_selection(&["chat.character.history"]);
         let policy = ResolvedDatasetPolicy::from_selection(&selection).unwrap();
         let mut plan = SyncPlan {
             plan_id: PlanId("test".into()),
-            selection: Some(selection),
+            selection,
             transfer: vec![
                 entry("default-user/chats/alice/chat.jsonl", 1, 1),
                 entry("default-user/chats/alice/chat.jsonl", 1, 1),

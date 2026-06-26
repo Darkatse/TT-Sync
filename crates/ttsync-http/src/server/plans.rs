@@ -58,13 +58,10 @@ impl PlanStore {
             plan_id: PlanId(plan_id),
             transfer,
             delete,
-            selection,
+            selection: _,
             files_total: _,
             bytes_total: _,
         } = plan;
-        selection.ok_or_else(|| {
-            SyncError::Internal("policy-aware plan did not carry dataset selection".into())
-        })?;
 
         let transfer = transfer
             .into_iter()
@@ -191,7 +188,7 @@ fn now_ms() -> Result<u64, SyncError> {
 mod tests {
     use super::*;
 
-    use ttsync_contract::dataset::DatasetSelection;
+    use ttsync_contract::dataset::{DATASET_POLICY_VERSION, DatasetSelection};
     use ttsync_contract::manifest::ManifestEntryV2;
 
     fn device_id(value: &str) -> DeviceId {
@@ -201,7 +198,10 @@ mod tests {
     fn plan(plan_id: &str, path: &str) -> SyncPlan {
         SyncPlan {
             plan_id: PlanId(plan_id.to_owned()),
-            selection: Some(DatasetSelection::default()),
+            selection: DatasetSelection::new(
+                DATASET_POLICY_VERSION,
+                vec!["chat.character.history".to_owned()],
+            ),
             transfer: vec![ManifestEntryV2 {
                 path: SyncPath::new(path.to_owned()).expect("valid sync path"),
                 size_bytes: 4,

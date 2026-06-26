@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use ttsync_contract::dataset::{DATASET_POLICY_VERSION, DatasetSelection, LEGACY_V2_DATASET_ID};
+use ttsync_contract::dataset::{DATASET_POLICY_VERSION, DatasetSelection};
 
 use crate::dataset::catalog::{dataset_definition, public_dataset_ids};
 use crate::error::SyncError;
@@ -8,31 +8,6 @@ use crate::error::SyncError;
 pub const TAURI_TAVERN_DEFAULT_PROFILE_ID: &str = "tauritavern.default";
 pub const TAURI_TAVERN_FULL_PROFILE_ID: &str = "tauritavern.full";
 pub const AGENT_RUN_HISTORY_FULL_PROFILE_ID: &str = "agent.run_history.full";
-
-const LEGACY_V2_DATASETS: &[&str] = &[
-    "chat.character.history",
-    "character.cards",
-    "chat.group.metadata",
-    "chat.group.history",
-    "world.info",
-    "media.backgrounds",
-    "ui.themes",
-    "legacy.user",
-    "character.avatars",
-    "preset.openai",
-    "preset.novelai",
-    "preset.textgen",
-    "preset.kobold",
-    "prompt.instruct",
-    "prompt.context",
-    "quick.replies",
-    "media.assets",
-    "extensions.local",
-    "extensions.third_party",
-    "extensions.sources",
-    "settings.core",
-    "secrets.api_keys",
-];
 
 const TAURI_TAVERN_DEFAULT_DATASETS: &[&str] = &[
     "settings.core",
@@ -96,16 +71,9 @@ const TAURI_TAVERN_FULL_EXTRA_DATASETS: &[&str] = &[
     "agent.checkpoints",
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ProfileVisibility {
-    Public,
-    Internal,
-}
-
 #[derive(Debug, Clone, Copy)]
 struct ProfileDefinition {
     id: &'static str,
-    visibility: ProfileVisibility,
     expansion: ProfileExpansion,
 }
 
@@ -115,38 +83,20 @@ enum ProfileExpansion {
     DefaultPlus(&'static [&'static str]),
 }
 
-impl ProfileDefinition {
-    fn is_public(self) -> bool {
-        self.visibility == ProfileVisibility::Public
-    }
-}
-
 const PROFILES: &[ProfileDefinition] = &[
     ProfileDefinition {
-        id: LEGACY_V2_DATASET_ID,
-        visibility: ProfileVisibility::Internal,
-        expansion: ProfileExpansion::Direct(LEGACY_V2_DATASETS),
-    },
-    ProfileDefinition {
         id: TAURI_TAVERN_DEFAULT_PROFILE_ID,
-        visibility: ProfileVisibility::Public,
         expansion: ProfileExpansion::Direct(TAURI_TAVERN_DEFAULT_DATASETS),
     },
     ProfileDefinition {
         id: TAURI_TAVERN_FULL_PROFILE_ID,
-        visibility: ProfileVisibility::Public,
         expansion: ProfileExpansion::DefaultPlus(TAURI_TAVERN_FULL_EXTRA_DATASETS),
     },
     ProfileDefinition {
         id: AGENT_RUN_HISTORY_FULL_PROFILE_ID,
-        visibility: ProfileVisibility::Public,
         expansion: ProfileExpansion::Direct(AGENT_RUN_HISTORY_FULL_DATASETS),
     },
 ];
-
-pub fn legacy_v2_selection() -> DatasetSelection {
-    DatasetSelection::legacy_v2()
-}
 
 pub fn tauri_tavern_default_selection() -> DatasetSelection {
     DatasetSelection::new(
@@ -178,7 +128,6 @@ pub fn supported_dataset_ids() -> Vec<String> {
 pub fn supported_profile_ids() -> Vec<String> {
     PROFILES
         .iter()
-        .filter(|profile| profile.is_public())
         .map(|profile| profile.id.to_owned())
         .collect()
 }

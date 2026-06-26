@@ -321,8 +321,7 @@ mod tests {
     }
 
     fn pull_plan_body_at_least(min_size: usize) -> String {
-        let prefix =
-            r#"{"mode":"Incremental","target_manifest":{"entries":[{"path":"default-user/chats/"#;
+        let prefix = r#"{"mode":"Incremental","selection":{"policy_version":1,"dataset_ids":["chat.character.history"]},"target_manifest":{"entries":[{"path":"default-user/chats/"#;
         let suffix = r#".json","size_bytes":1,"modified_ms":1}]}}"#;
         let filler_len = min_size.saturating_sub(prefix.len() + suffix.len());
         let body = format!("{prefix}{}{suffix}", "x".repeat(filler_len));
@@ -331,13 +330,32 @@ mod tests {
     }
 
     fn push_plan_body_at_least(min_size: usize) -> String {
-        let prefix =
-            r#"{"mode":"Incremental","source_manifest":{"entries":[{"path":"default-user/chats/"#;
+        let prefix = r#"{"mode":"Incremental","selection":{"policy_version":1,"dataset_ids":["chat.character.history"]},"source_manifest":{"entries":[{"path":"default-user/chats/"#;
         let suffix = r#".json","size_bytes":1,"modified_ms":1}]}}"#;
         let filler_len = min_size.saturating_sub(prefix.len() + suffix.len());
         let body = format!("{prefix}{}{suffix}", "x".repeat(filler_len));
         assert!(body.len() >= min_size);
         body
+    }
+
+    #[tokio::test]
+    async fn plan_routes_reject_missing_selection_before_auth() {
+        assert_eq!(
+            post_plan(
+                "/v2/sync/pull-plan",
+                r#"{"mode":"Incremental","target_manifest":{"entries":[]}}"#.to_owned(),
+            )
+            .await,
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
+        assert_eq!(
+            post_plan(
+                "/v2/sync/push-plan",
+                r#"{"mode":"Incremental","source_manifest":{"entries":[]}}"#.to_owned(),
+            )
+            .await,
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
     }
 
     async fn post_plan(path: &str, body: String) -> StatusCode {

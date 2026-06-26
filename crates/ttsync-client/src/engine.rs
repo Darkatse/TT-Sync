@@ -1168,7 +1168,7 @@ mod tests {
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use tokio::io::AsyncReadExt;
     use tokio::time::sleep;
-    use ttsync_contract::dataset::DatasetSelection;
+    use ttsync_contract::dataset::{DATASET_POLICY_VERSION, DatasetSelection};
     use ttsync_contract::manifest::{ManifestEntryV2, ManifestV2};
     use ttsync_contract::path::SyncPath;
     use ttsync_contract::peer::{DeviceId, PeerGrant, Permissions};
@@ -1190,6 +1190,13 @@ mod tests {
         BundleTransport, ClientSyncEngine, ClientSyncFailure, ClientSyncOptions, ClientSyncTarget,
         LocalChangeSummary, NoopSyncObserver,
     };
+
+    fn chat_selection() -> DatasetSelection {
+        DatasetSelection::new(
+            DATASET_POLICY_VERSION,
+            vec!["chat.character.history".to_owned()],
+        )
+    }
 
     #[test]
     fn failure_preserves_local_target_change_with_counted_local_changes() {
@@ -1633,7 +1640,7 @@ mod tests {
 
         let options = ClientSyncOptions {
             mode: SyncMode::Mirror,
-            selection: DatasetSelection::legacy_v2(),
+            selection: chat_selection(),
             require_bundle_zstd: true,
             file_concurrency: 2,
         };
@@ -1653,7 +1660,7 @@ mod tests {
             .direct_push(
                 ClientSyncOptions {
                     mode: SyncMode::Incremental,
-                    selection: DatasetSelection::legacy_v2(),
+                    selection: chat_selection(),
                     require_bundle_zstd: true,
                     file_concurrency: 2,
                 },
@@ -1697,7 +1704,7 @@ mod tests {
         );
         let options = ClientSyncOptions {
             mode: SyncMode::Incremental,
-            selection: DatasetSelection::legacy_v2(),
+            selection: chat_selection(),
             require_bundle_zstd: false,
             file_concurrency: 2,
         };
@@ -1766,7 +1773,7 @@ mod tests {
             .direct_push(
                 ClientSyncOptions {
                     mode: SyncMode::Incremental,
-                    selection: DatasetSelection::legacy_v2(),
+                    selection: chat_selection(),
                     require_bundle_zstd: true,
                     file_concurrency: 2,
                 },

@@ -62,11 +62,6 @@ impl ResolvedDatasetPolicy {
         })
     }
 
-    pub fn legacy_v2() -> Self {
-        Self::from_selection(&DatasetSelection::legacy_v2())
-            .expect("legacy dataset policy must be valid")
-    }
-
     pub fn tauri_tavern_default() -> Self {
         Self::from_selection(&tauri_tavern_default_selection())
             .expect("TauriTavern default dataset policy must be valid")
