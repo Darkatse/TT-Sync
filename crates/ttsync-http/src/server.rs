@@ -10,6 +10,7 @@ use axum::http::HeaderMap;
 use axum::routing::{get, post};
 use ttsync_contract::dataset::{DATASET_POLICY_VERSION, DATASET_SCOPE_FEATURE_V1};
 use ttsync_contract::status::StatusResponse;
+use ttsync_core::bundle::{FEATURE_BUNDLE_V1, FEATURE_ZSTD_V1};
 use ttsync_core::dataset::{
     supported_dataset_ids, supported_profile_ids, tauri_tavern_default_selection,
 };
@@ -218,8 +219,8 @@ pub fn default_status_response() -> StatusResponse {
         protocol: "v2".to_owned(),
         server: "tt-sync".to_owned(),
         features: vec![
-            "bundle_v1".to_owned(),
-            "zstd_v1".to_owned(),
+            FEATURE_BUNDLE_V1.to_owned(),
+            FEATURE_ZSTD_V1.to_owned(),
             DATASET_SCOPE_FEATURE_V1.to_owned(),
         ],
         dataset_policy_version: Some(DATASET_POLICY_VERSION),
@@ -250,52 +251,36 @@ mod tests {
     struct UnusedManifestStore;
 
     impl ManifestStore for UnusedManifestStore {
-        fn scan(
-            &self,
-            _policy: ResolvedDatasetPolicy,
-        ) -> impl std::future::Future<Output = Result<ManifestV2, SyncError>> + Send {
-            async {
-                Err(SyncError::Internal(
-                    "manifest store should not be used".into(),
-                ))
-            }
+        async fn scan(&self, _policy: ResolvedDatasetPolicy) -> Result<ManifestV2, SyncError> {
+            Err(SyncError::Internal(
+                "manifest store should not be used".into(),
+            ))
         }
 
-        fn read_file(
+        async fn read_file(
             &self,
             _path: &SyncPath,
-        ) -> impl std::future::Future<
-            Output = Result<Box<dyn tokio::io::AsyncRead + Send + Unpin>, SyncError>,
-        > + Send {
-            async {
-                Err::<Box<dyn tokio::io::AsyncRead + Send + Unpin>, _>(SyncError::Internal(
-                    "manifest store should not be used".into(),
-                ))
-            }
+        ) -> Result<Box<dyn tokio::io::AsyncRead + Send + Unpin>, SyncError> {
+            Err(SyncError::Internal(
+                "manifest store should not be used".into(),
+            ))
         }
 
-        fn write_file(
+        async fn write_file(
             &self,
             _path: &SyncPath,
             _data: &mut (dyn tokio::io::AsyncRead + Send + Unpin),
             _modified_ms: u64,
-        ) -> impl std::future::Future<Output = Result<(), SyncError>> + Send {
-            async {
-                Err(SyncError::Internal(
-                    "manifest store should not be used".into(),
-                ))
-            }
+        ) -> Result<(), SyncError> {
+            Err(SyncError::Internal(
+                "manifest store should not be used".into(),
+            ))
         }
 
-        fn delete_file(
-            &self,
-            _path: &SyncPath,
-        ) -> impl std::future::Future<Output = Result<(), SyncError>> + Send {
-            async {
-                Err(SyncError::Internal(
-                    "manifest store should not be used".into(),
-                ))
-            }
+        async fn delete_file(&self, _path: &SyncPath) -> Result<(), SyncError> {
+            Err(SyncError::Internal(
+                "manifest store should not be used".into(),
+            ))
         }
     }
 
@@ -303,31 +288,20 @@ mod tests {
     struct UnusedPeerStore;
 
     impl PeerStore for UnusedPeerStore {
-        fn get_peer(
-            &self,
-            _device_id: &DeviceId,
-        ) -> impl std::future::Future<Output = Result<PeerGrant, SyncError>> + Send {
-            async { Err(SyncError::Internal("peer store should not be used".into())) }
+        async fn get_peer(&self, _device_id: &DeviceId) -> Result<PeerGrant, SyncError> {
+            Err(SyncError::Internal("peer store should not be used".into()))
         }
 
-        fn save_peer(
-            &self,
-            _grant: PeerGrant,
-        ) -> impl std::future::Future<Output = Result<(), SyncError>> + Send {
-            async { Err(SyncError::Internal("peer store should not be used".into())) }
+        async fn save_peer(&self, _grant: PeerGrant) -> Result<(), SyncError> {
+            Err(SyncError::Internal("peer store should not be used".into()))
         }
 
-        fn remove_peer(
-            &self,
-            _device_id: &DeviceId,
-        ) -> impl std::future::Future<Output = Result<(), SyncError>> + Send {
-            async { Err(SyncError::Internal("peer store should not be used".into())) }
+        async fn remove_peer(&self, _device_id: &DeviceId) -> Result<(), SyncError> {
+            Err(SyncError::Internal("peer store should not be used".into()))
         }
 
-        fn list_peers(
-            &self,
-        ) -> impl std::future::Future<Output = Result<Vec<PeerGrant>, SyncError>> + Send {
-            async { Err(SyncError::Internal("peer store should not be used".into())) }
+        async fn list_peers(&self) -> Result<Vec<PeerGrant>, SyncError> {
+            Err(SyncError::Internal("peer store should not be used".into()))
         }
     }
 

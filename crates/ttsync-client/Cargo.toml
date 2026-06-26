@@ -1,0 +1,21 @@
+[package]
+name = "ttsync-client"
+version.workspace = true
+description = "Reusable TT-Sync v2 client pull and push engine"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ttsync-contract = { workspace = true }
+ttsync-core = { workspace = true }
+ttsync-http = { workspace = true, features = ["client"] }
+async-compression = { version = "0.4", features = ["tokio", "zstd"] }
+futures-util = "0.3"
+reqwest = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { version = "0.7", features = ["io"] }
+
+[dev-dependencies]
+base64 = { workspace = true }
+ttsync-http = { workspace = true, features = ["client", "server"] }

@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/ttsync-contract",
     "crates/ttsync-core",
+    "crates/ttsync-client",
     "crates/ttsync-fs",
     "crates/ttsync-http",
     "crates/ttsync-cli",
@@ -63,5 +64,6 @@ blake3 = "1"
 # Internal crates
 ttsync-contract = { path = "crates/ttsync-contract", version = "2.0.3" }
 ttsync-core = { path = "crates/ttsync-core", version = "2.0.3" }
+ttsync-client = { path = "crates/ttsync-client", version = "2.0.3" }
 ttsync-fs = { path = "crates/ttsync-fs", version = "2.0.3" }
 ttsync-http = { path = "crates/ttsync-http", version = "2.0.3", default-features = false }

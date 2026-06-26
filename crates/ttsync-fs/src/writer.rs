@@ -68,9 +68,11 @@ async fn copy_to_file(
 /// Delete a file at the given sync path.
 pub async fn delete_file(mounts: &WorkspaceMounts, sync_path: &SyncPath) -> Result<(), SyncError> {
     let full_path = resolve_to_local(mounts, sync_path);
-    tokio::fs::remove_file(&full_path)
-        .await
-        .map_err(|e| SyncError::Io(e.to_string()))
+    match tokio::fs::remove_file(&full_path).await {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(SyncError::Io(error.to_string())),
+    }
 }
 
 fn download_tmp_path(full_path: &Path) -> PathBuf {
@@ -102,4 +104,39 @@ fn set_file_modified_ms(path: &Path, modified_ms: u64) -> Result<(), SyncError> 
     let nanos = ((modified_ms % 1000) * 1_000_000) as u32;
     let mtime = filetime::FileTime::from_unix_time(secs, nanos);
     filetime::set_file_mtime(path, mtime).map_err(|e| SyncError::Io(e.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use ttsync_contract::path::SyncPath;
+
+    use crate::layout::WorkspaceMounts;
+
+    use super::delete_file;
+
+    #[tokio::test]
+    async fn delete_file_is_idempotent_for_missing_files() {
+        let data_root = unique_temp_dir();
+        let mounts = WorkspaceMounts {
+            data_root: data_root.clone(),
+            default_user_root: data_root.join("default-user"),
+            extensions_root: data_root.join("extensions").join("third-party"),
+        };
+        let path = SyncPath::new("default-user/chats/missing.jsonl").unwrap();
+
+        delete_file(&mounts, &path).await.expect("missing delete");
+
+        let _ = std::fs::remove_dir_all(data_root);
+    }
+
+    fn unique_temp_dir() -> PathBuf {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock")
+            .as_nanos();
+        std::env::temp_dir().join(format!("ttsync-writer-test-{now}"))
+    }
 }

@@ -24,11 +24,10 @@ use ttsync_contract::session::{
 };
 use ttsync_contract::status::StatusResponse;
 use ttsync_contract::sync::SyncMode;
+use ttsync_core::bundle::BUNDLE_CONTENT_TYPE;
 use ttsync_core::crypto::{random_base64url, sha256_base64url, sign_ed25519_b64url};
 use ttsync_core::error::SyncError;
 use url::Url;
-
-const BUNDLE_CONTENT_TYPE: &str = "application/x-ttsync-bundle";
 
 /// A configured v2 sync client.
 #[derive(Clone)]
@@ -915,17 +914,12 @@ mod integration_tests {
             async move { grant.ok_or_else(|| SyncError::NotFound("peer not found".into())) }
         }
 
-        fn save_peer(
-            &self,
-            grant: PeerGrant,
-        ) -> impl std::future::Future<Output = Result<(), SyncError>> + Send {
-            async move {
-                self.peers
-                    .lock()
-                    .expect("peers mutex")
-                    .insert(grant.device_id.clone(), grant);
-                Ok(())
-            }
+        async fn save_peer(&self, grant: PeerGrant) -> Result<(), SyncError> {
+            self.peers
+                .lock()
+                .expect("peers mutex")
+                .insert(grant.device_id.clone(), grant);
+            Ok(())
         }
 
         fn remove_peer(
@@ -1069,6 +1063,17 @@ mod integration_tests {
             .expect("push plan");
         assert_eq!(push_plan.transfer.len(), 1);
 
+        let upload_error = client
+            .upload_file(
+                &session.session_token,
+                &push_plan.plan_id,
+                &pushed_path,
+                Body::from("client-extra"),
+            )
+            .await
+            .expect_err("oversized upload");
+        assert!(matches!(upload_error, SyncError::InvalidData(_)));
+
         client
             .upload_file(
                 &session.session_token,
@@ -1085,6 +1090,44 @@ mod integration_tests {
         assert!(commit.ok);
         assert_eq!(manifest_store.bytes(pushed_path.as_str()), b"client");
         assert!(peer_store.peer(&client_device_id).last_sync_ms.is_some());
+
+        let empty_push_plan = client
+            .push_plan(
+                &session.session_token,
+                SyncMode::Incremental,
+                DatasetSelection::legacy_v2(),
+                ManifestV2 {
+                    entries: vec![
+                        ManifestEntryV2 {
+                            path: SyncPath::new("default-user/chats/server.jsonl".to_owned())
+                                .expect("valid sync path"),
+                            size_bytes: 6,
+                            modified_ms: 1234,
+                            content_hash: None,
+                        },
+                        ManifestEntryV2 {
+                            path: pushed_path.clone(),
+                            size_bytes: 6,
+                            modified_ms: 2345,
+                            content_hash: None,
+                        },
+                    ],
+                },
+            )
+            .await
+            .expect("empty push plan");
+        assert!(empty_push_plan.transfer.is_empty());
+
+        let bundle_error = client
+            .upload_bundle(
+                &session.session_token,
+                &empty_push_plan.plan_id,
+                Body::from(vec![0, 0, 0, 0, b'x']),
+                false,
+            )
+            .await
+            .expect_err("trailing bundle byte");
+        assert!(matches!(bundle_error, SyncError::InvalidData(_)));
 
         handle.shutdown();
         let _ = std::fs::remove_dir_all(state_dir);

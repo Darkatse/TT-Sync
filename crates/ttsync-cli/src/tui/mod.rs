@@ -91,10 +91,10 @@ fn run_with(ctx: &Context, start: StartMode) -> Result<(), CliError> {
     let _ = app.serve.refresh_user_service_status();
 
     while !app.should_quit {
-        if app.screen == Screen::Pairing {
-            if let Err(e) = app.pairing.tick(ctx, app.language) {
-                app.pairing.error = Some(e.to_string());
-            }
+        if app.screen == Screen::Pairing
+            && let Err(e) = app.pairing.tick(ctx, app.language)
+        {
+            app.pairing.error = Some(e.to_string());
         }
 
         terminal.draw(|frame| match app.screen {
@@ -132,10 +132,10 @@ fn run_with(ctx: &Context, start: StartMode) -> Result<(), CliError> {
             }
         })?;
 
-        if event::poll(Duration::from_millis(200))? {
-            if let Event::Key(key) = event::read()? {
-                handle_key(&mut app, ctx, key)?;
-            }
+        if event::poll(Duration::from_millis(200))?
+            && let Event::Key(key) = event::read()?
+        {
+            handle_key(&mut app, ctx, key)?;
         }
     }
 
@@ -688,10 +688,10 @@ fn handle_key_onboard(app: &mut App, ctx: &Context, code: KeyCode) -> Result<(),
                             }
                         }
                     }
-                    if let Err(e) = app.pairing.enter(ctx, app.language) {
-                        if app.pairing.error.is_none() {
-                            app.pairing.error = Some(e.to_string());
-                        }
+                    if let Err(e) = app.pairing.enter(ctx, app.language)
+                        && app.pairing.error.is_none()
+                    {
+                        app.pairing.error = Some(e.to_string());
                     }
                 }
             }

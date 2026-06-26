@@ -35,7 +35,7 @@ use uuid::Uuid;
 use super::auth::{authenticate_peer, decode_sync_path_b64, ensure_mode_allowed, header_str};
 use super::bundle::{
     BUNDLE_CONTENT_TYPE, BundleContentEncoding, ExactSizeReader, MAX_BUNDLE_PATH_LEN, accepts_zstd,
-    read_u32_be, request_content_encoding, write_bundle_download,
+    expect_eof, read_u32_be, request_content_encoding, write_bundle_download,
 };
 use super::error::ApiError;
 use super::plans::{PlanDirection, TransferMeta};
@@ -288,14 +288,30 @@ where
     if !peer.grant.permissions.write {
         return Err(SyncError::Unauthorized("write not granted".into()).into());
     }
+    if let Some(content_length) = headers.get(header::CONTENT_LENGTH) {
+        let content_length = content_length
+            .to_str()
+            .map_err(|_| SyncError::InvalidData("invalid Content-Length header".into()))?
+            .parse::<u64>()
+            .map_err(|_| SyncError::InvalidData("invalid Content-Length header".into()))?;
+        if content_length != meta.size_bytes {
+            return Err(SyncError::InvalidData(format!(
+                "uploaded file size mismatch for {}: expected {}, got {}",
+                sync_path, meta.size_bytes, content_length
+            ))
+            .into());
+        }
+    }
 
     let stream = body.into_data_stream().map_err(std::io::Error::other);
     let mut reader = StreamReader::new(stream);
+    let mut exact = ExactSizeReader::new(&mut reader, meta.size_bytes);
 
     state
         .manifest_store
-        .write_file(&sync_path, &mut reader, meta.modified_ms)
+        .write_file(&sync_path, &mut exact, meta.modified_ms)
         .await?;
+    expect_eof(&mut reader, "uploaded file").await?;
 
     Ok(Json(json!({ "ok": true })))
 }
@@ -438,6 +454,7 @@ where
         ))
         .into());
     }
+    expect_eof(&mut reader, "bundle stream").await?;
 
     Ok(Json(json!({ "ok": true, "files_written": files_written })))
 }

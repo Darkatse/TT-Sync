@@ -29,8 +29,10 @@
 
 | Item | Choice | Rationale |
 |------|--------|-----------|
+| Client orchestration | **ttsync-client** | Shared pull/push engine for TauriTavern and native clients. Keeps Tauri events, AppState refresh, and config storage outside the sync state machine. |
 | HTTP client | **reqwest** + **rustls** | Already used in TauriTavern. Supports custom TLS verifiers for SPKI pinning. |
 | SPKI pinning | Custom `rustls::client::danger::ServerCertVerifier` | Validates server's TLS public key hash against the pin from pair URI, bypassing hostname/issuer checks while preserving TLS handshake security. |
+| Bundle compression | **async-compression** (`zstd`) | Streaming compression for `bundle_v1` transfers. Falls back to identity/per-file transfers when the peer does not advertise support. |
 
 ## Cryptography
 

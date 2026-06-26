@@ -1,17 +1,15 @@
-use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll};
 
 use axum::http::{HeaderMap, header};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt, ReadBuf};
 use ttsync_contract::path::SyncPath;
+pub(super) use ttsync_core::bundle::{
+    BUNDLE_CONTENT_TYPE, ExactSizeReader, MAX_BUNDLE_PATH_LEN, expect_eof, read_u32_be,
+};
+use ttsync_core::bundle::{BUNDLE_STREAM_BUFFER_SIZE, copy_exact_and_expect_eof, write_u32_be};
 use ttsync_core::error::SyncError;
 use ttsync_core::ports::ManifestStore;
 
 use super::plans::TransferMeta;
-
-pub(super) const BUNDLE_CONTENT_TYPE: &str = "application/x-ttsync-bundle";
-pub(super) const MAX_BUNDLE_PATH_LEN: u32 = 16 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum BundleContentEncoding {
@@ -57,18 +55,6 @@ pub(super) fn request_content_encoding(
     }
 }
 
-pub(super) async fn read_u32_be<R>(reader: &mut R) -> Result<u32, SyncError>
-where
-    R: AsyncRead + Unpin,
-{
-    let mut buf = [0u8; 4];
-    reader
-        .read_exact(&mut buf)
-        .await
-        .map_err(|e| SyncError::Io(e.to_string()))?;
-    Ok(u32::from_be_bytes(buf))
-}
-
 pub(super) async fn write_bundle_download<M>(
     manifest_store: Arc<M>,
     transfer: Vec<(SyncPath, TransferMeta)>,
@@ -77,6 +63,7 @@ pub(super) async fn write_bundle_download<M>(
 where
     M: ManifestStore + 'static,
 {
+    let mut buffer = vec![0u8; BUNDLE_STREAM_BUFFER_SIZE];
     for (path, meta) in transfer {
         let path_bytes = path.as_str().as_bytes();
         let path_len = u32::try_from(path_bytes.len())
@@ -88,102 +75,16 @@ where
             )));
         }
 
-        out.write_all(&path_len.to_be_bytes())
-            .await
-            .map_err(|e| SyncError::Io(e.to_string()))?;
-        out.write_all(path_bytes)
+        write_u32_be(&mut out, path_len).await?;
+        tokio::io::AsyncWriteExt::write_all(&mut out, path_bytes)
             .await
             .map_err(|e| SyncError::Io(e.to_string()))?;
 
         let mut reader = manifest_store.read_file(&path).await?;
-        copy_exact(&mut reader, &mut out, meta.size_bytes).await?;
+        copy_exact_and_expect_eof(&mut reader, &mut out, meta.size_bytes, &mut buffer).await?;
     }
 
-    out.write_all(&0u32.to_be_bytes())
-        .await
-        .map_err(|e| SyncError::Io(e.to_string()))?;
+    write_u32_be(&mut out, 0).await?;
 
     Ok(())
-}
-
-async fn copy_exact<R, W>(
-    reader: &mut R,
-    writer: &mut W,
-    mut remaining: u64,
-) -> Result<(), SyncError>
-where
-    R: AsyncRead + Unpin,
-    W: tokio::io::AsyncWrite + Unpin,
-{
-    let mut buffer = vec![0u8; 64 * 1024];
-    while remaining > 0 {
-        let to_read = (buffer.len() as u64).min(remaining) as usize;
-        let read = reader
-            .read(&mut buffer[..to_read])
-            .await
-            .map_err(|e| SyncError::Io(e.to_string()))?;
-        if read == 0 {
-            return Err(SyncError::Io("unexpected EOF in bundle stream".into()));
-        }
-        writer
-            .write_all(&buffer[..read])
-            .await
-            .map_err(|e| SyncError::Io(e.to_string()))?;
-        remaining -= read as u64;
-    }
-    Ok(())
-}
-
-pub(super) struct ExactSizeReader<R> {
-    inner: R,
-    remaining: u64,
-}
-
-impl<R> ExactSizeReader<R> {
-    pub(super) fn new(inner: R, size_bytes: u64) -> Self {
-        Self {
-            inner,
-            remaining: size_bytes,
-        }
-    }
-}
-
-impl<R> AsyncRead for ExactSizeReader<R>
-where
-    R: AsyncRead + Unpin,
-{
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<std::io::Result<()>> {
-        if self.remaining == 0 {
-            return Poll::Ready(Ok(()));
-        }
-
-        let max = (self.remaining as usize).min(buf.remaining());
-        if max == 0 {
-            return Poll::Ready(Ok(()));
-        }
-
-        let dst = buf.initialize_unfilled_to(max);
-        let mut limited = ReadBuf::new(dst);
-        match Pin::new(&mut self.inner).poll_read(cx, &mut limited) {
-            Poll::Pending => Poll::Pending,
-            Poll::Ready(Ok(())) => {
-                let read = limited.filled().len();
-                if read == 0 {
-                    return Poll::Ready(Err(std::io::Error::new(
-                        std::io::ErrorKind::UnexpectedEof,
-                        "bundle file stream ended early",
-                    )));
-                }
-
-                buf.advance(read);
-                self.remaining -= read as u64;
-                Poll::Ready(Ok(()))
-            }
-            Poll::Ready(Err(error)) => Poll::Ready(Err(error)),
-        }
-    }
 }

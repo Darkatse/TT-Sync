@@ -1,7 +1,7 @@
+pub mod bundle;
 pub mod crypto;
 pub mod dataset;
 pub mod error;
-pub mod events;
 pub mod pairing;
 pub mod plan;
 pub mod ports;

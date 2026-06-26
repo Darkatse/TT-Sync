@@ -117,13 +117,11 @@ impl TextInput {
     }
 
     fn prev_cursor_byte_index(&self) -> usize {
-        let prev = self
-            .value
+        self.value
             .char_indices()
             .nth(self.cursor.saturating_sub(1))
             .map(|(i, _)| i)
-            .expect("cursor must be > 0");
-        prev
+            .expect("cursor must be > 0")
     }
 
     fn next_cursor_byte_index(&self) -> usize {

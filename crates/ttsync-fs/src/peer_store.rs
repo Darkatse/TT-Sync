@@ -41,20 +41,15 @@ impl PeerStore for JsonPeerStore {
         }
     }
 
-    fn save_peer(
-        &self,
-        grant: PeerGrant,
-    ) -> impl std::future::Future<Output = Result<(), SyncError>> + Send {
-        async move {
-            let _guard = self.lock.lock().await;
-            let mut peers = load_peers(&self.path).await?;
-            if let Some(existing) = peers.iter_mut().find(|p| p.device_id == grant.device_id) {
-                *existing = grant;
-            } else {
-                peers.push(grant);
-            }
-            save_peers(&self.path, &peers).await
+    async fn save_peer(&self, grant: PeerGrant) -> Result<(), SyncError> {
+        let _guard = self.lock.lock().await;
+        let mut peers = load_peers(&self.path).await?;
+        if let Some(existing) = peers.iter_mut().find(|p| p.device_id == grant.device_id) {
+            *existing = grant;
+        } else {
+            peers.push(grant);
         }
+        save_peers(&self.path, &peers).await
     }
 
     fn remove_peer(
@@ -70,13 +65,9 @@ impl PeerStore for JsonPeerStore {
         }
     }
 
-    fn list_peers(
-        &self,
-    ) -> impl std::future::Future<Output = Result<Vec<PeerGrant>, SyncError>> + Send {
-        async move {
-            let _guard = self.lock.lock().await;
-            load_peers(&self.path).await
-        }
+    async fn list_peers(&self) -> Result<Vec<PeerGrant>, SyncError> {
+        let _guard = self.lock.lock().await;
+        load_peers(&self.path).await
     }
 }
 

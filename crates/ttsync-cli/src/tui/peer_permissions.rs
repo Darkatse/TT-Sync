@@ -6,14 +6,14 @@ use crate::config::UiLanguage;
 pub enum PermissionPreset {
     ReadOnly,
     ReadWrite,
-    ReadWriteMirrorDelete,
+    MirrorDelete,
 }
 
 impl PermissionPreset {
     pub const ALL: [PermissionPreset; 3] = [
         PermissionPreset::ReadOnly,
         PermissionPreset::ReadWrite,
-        PermissionPreset::ReadWriteMirrorDelete,
+        PermissionPreset::MirrorDelete,
     ];
 
     pub fn permissions(self) -> Permissions {
@@ -28,7 +28,7 @@ impl PermissionPreset {
                 write: true,
                 mirror_delete: false,
             },
-            PermissionPreset::ReadWriteMirrorDelete => Permissions {
+            PermissionPreset::MirrorDelete => Permissions {
                 read: true,
                 write: true,
                 mirror_delete: true,
@@ -40,12 +40,10 @@ impl PermissionPreset {
         match (lang, self) {
             (UiLanguage::ZhCn, PermissionPreset::ReadOnly) => "只读（Read only）",
             (UiLanguage::ZhCn, PermissionPreset::ReadWrite) => "读写（Read + Write）",
-            (UiLanguage::ZhCn, PermissionPreset::ReadWriteMirrorDelete) => {
-                "读写 + 允许 镜像模式 下的删除"
-            }
+            (UiLanguage::ZhCn, PermissionPreset::MirrorDelete) => "读写 + 允许 镜像模式 下的删除",
             (UiLanguage::En, PermissionPreset::ReadOnly) => "Read only",
             (UiLanguage::En, PermissionPreset::ReadWrite) => "Read + Write",
-            (UiLanguage::En, PermissionPreset::ReadWriteMirrorDelete) => {
+            (UiLanguage::En, PermissionPreset::MirrorDelete) => {
                 "Read + Write + Allow mirror delete"
             }
         }

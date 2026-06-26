@@ -6,22 +6,6 @@ use crate::dataset::ResolvedDatasetPolicy;
 use crate::error::SyncError;
 
 // ---------------------------------------------------------------------------
-// SyncEventSink — progress reporting abstraction
-// ---------------------------------------------------------------------------
-
-/// Receives sync lifecycle events.
-///
-/// Implemented by:
-/// - CLI adapter → progress bars + log lines
-/// - Tauri adapter → `lan_sync:*` Tauri events
-/// - Test harness → collects events for assertion
-pub trait SyncEventSink: Send + Sync {
-    fn on_progress(&self, event: crate::events::SyncProgressEvent);
-    fn on_completed(&self, event: crate::events::SyncCompletedEvent);
-    fn on_error(&self, event: crate::events::SyncErrorEvent);
-}
-
-// ---------------------------------------------------------------------------
 // ManifestStore — file system abstraction
 // ---------------------------------------------------------------------------
 

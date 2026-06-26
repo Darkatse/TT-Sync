@@ -39,17 +39,12 @@ impl Default for UiConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum UiLanguage {
+    #[default]
     ZhCn,
     En,
-}
-
-impl Default for UiLanguage {
-    fn default() -> Self {
-        Self::ZhCn
-    }
 }
 
 /// Device identity persisted in `identity.json`.

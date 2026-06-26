@@ -1,4 +1,4 @@
-# TT-Sync: Current State (2026-03-24)
+# TT-Sync: Current State (2026-06-26)
 
 This document is a snapshot of what is **implemented** and what is **still pending** in the TT-Sync workspace.
 
@@ -18,6 +18,8 @@ This document is a snapshot of what is **implemented** and what is **still pendi
 - `compute_plan()` algorithm (incremental + mirror) with unit tests.
 - `DatasetPolicy` resolves stable dataset ids and public profile ids into scan roots, files, path predicates, exclusions, runtime eligibility, and scope-aware delete boundaries.
 - `compute_plan_for_policy()` validates source/target manifests against the selected dataset before diffing.
+- `validate_plan_scope()` verifies remote plans before a client applies transfers or deletes.
+- Shared bundle framing helpers and capability constants (`bundle_v1`, `zstd_v1`).
 - Pairing use-case:
   - `create_pairing_session(public_url, spki, config) -> (PairingSession, PairUri)`
   - `complete_pairing(session, req, server_id, server_name) -> (PeerGrant, PairCompleteResponse)`
@@ -57,6 +59,8 @@ This document is a snapshot of what is **implemented** and what is **still pendi
   - `POST /v2/sync/push-plan` (requires `Authorization: Bearer <session_token>`)
   - `GET  /v2/plans/{plan_id}/files/{path_b64}` (download for pull plans)
   - `PUT  /v2/plans/{plan_id}/files/{path_b64}` (upload for push plans)
+  - `GET  /v2/plans/{plan_id}/bundle` (download bundle for pull plans)
+  - `PUT  /v2/plans/{plan_id}/bundle` (upload bundle for push plans)
   - `POST /v2/plans/{plan_id}/commit` (applies mirror deletes on server for push plans)
 - Server-side plan state is stored in-memory with a 30-minute TTL.
 - `/v2/status` advertises `dataset_scope_v1`, `dataset_policy_version`, supported leaf dataset ids, supported profile ids, and default dataset ids.
@@ -68,6 +72,21 @@ This document is a snapshot of what is **implemented** and what is **still pendi
   - Ignores hostname / issuer / expiry.
   - Accepts the server only if SPKI hash matches the pinned value.
   - Still verifies TLS handshake signatures (delegated to `WebPkiServerVerifier`).
+
+### `ttsync-client` (shared client engine)
+
+- `ClientSyncEngine` implements reusable pull and direct-push orchestration for native clients:
+  - status feature check + `dataset_scope_v1` enforcement
+  - Ed25519 session open
+  - permission checks for read/write/mirror delete
+  - local scan via `ClientWorkspace`
+  - pull/push plan request
+  - DatasetPolicy plan-scope validation before applying changes
+  - bundle/zstd transfer when supported, with per-file fallback
+  - mirror delete handling and push commit
+- `ClientWorkspace` has a blanket implementation for any `ManifestStore`, and lets native adapters report whether a failed write/delete may have changed local state.
+- `SyncObserver` reports progress without depending on Tauri events, CLI progress bars, or any UI runtime.
+- End-to-end client test spins up the real HTTPS server and exercises bundle+zstd pull and push.
 
 ### `tt-sync` (presentation layer) — **newly implemented**
 
@@ -126,9 +145,9 @@ This document is a snapshot of what is **implemented** and what is **still pendi
   - Current scope is explicitly **user-scope only**: Linux `systemd --user`, macOS `LaunchAgent`, Windows Task Scheduler.
   - Linux `systemd --user`, macOS `LaunchAgent`, and Windows `Task Scheduler` (**beta**) are implemented.
 - TauriTavern integration:
-  - Client-side manifest scan + plan apply orchestration (pull/push loops), progress events, and DatasetPolicy-based scope selection.
+  - Wire TauriTavern to `ttsync-client`: implement its `ClientWorkspace`, map `SyncObserver` to Tauri events, refresh AppState caches after successful local changes, and persist TT-Sync pairing/config state.
 - Tests:
-  - Add integration tests that spin up the HTTPS server and exercise session + plan + file transfer end-to-end.
+  - Add TauriTavern adapter integration tests and focused failure-path tests for partial local apply reporting.
 
 ## Verification
 
@@ -138,4 +157,4 @@ From `TT-Sync/`:
 cargo test
 ```
 
-Run `cargo test` from the workspace root; unit tests cover dataset policy, plan diffing, bundle framing, HTTP body limits, TLS helpers, and pairing/session primitives.
+Run `cargo test` from the workspace root; unit tests cover dataset policy, plan diffing, bundle framing, HTTP body limits, TLS helpers, pairing/session primitives, and shared client pull/push orchestration.

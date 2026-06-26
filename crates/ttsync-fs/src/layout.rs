@@ -9,18 +9,13 @@ use serde::{Deserialize, Serialize};
 use ttsync_contract::path::SyncPath;
 use ttsync_core::error::SyncError;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(try_from = "String", into = "String")]
 pub enum LayoutMode {
+    #[default]
     TauriTavern,
     SillyTavern,
     SillyTavernDocker,
-}
-
-impl Default for LayoutMode {
-    fn default() -> Self {
-        Self::TauriTavern
-    }
 }
 
 impl LayoutMode {

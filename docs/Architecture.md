@@ -9,6 +9,9 @@ TT-Sync follows **Clean Architecture** with an explicit dependency rule: inner l
 │                     tt-sync                              │  Presentation
 │              (clap commands, progress UI)                │
 ├──────────────────────────┬───────────────────────────────┤
+│                   ttsync-client                          │  Client orchestration
+│        (pull/push engine, progress, local apply)          │  (Outer use case)
+├──────────────────────────┬───────────────────────────────┤
 │       ttsync-http        │        ttsync-fs              │  Infrastructure
 │  (axum server, reqwest   │  (manifest scanner,           │  (Adapters)
 │   client, TLS setup)     │   atomic file I/O)            │
@@ -27,11 +30,15 @@ TT-Sync follows **Clean Architecture** with an explicit dependency rule: inner l
 graph BT
     contract["ttsync-contract<br/><i>Domain</i>"]
     core["ttsync-core<br/><i>Application</i>"]
+    client["ttsync-client<br/><i>Client Orchestration</i>"]
     fs["ttsync-fs<br/><i>Infrastructure</i>"]
     http["ttsync-http<br/><i>Infrastructure</i>"]
     cli["tt-sync<br/><i>Presentation</i>"]
 
     core --> contract
+    client --> http
+    client --> core
+    client --> contract
     fs --> core
     fs --> contract
     http --> core
@@ -80,19 +87,11 @@ This crate is the shared language between TT-Sync and TauriTavern. It must be us
 
 **Use-case orchestration. Defines traits for all external dependencies.**
 
-This crate contains the "what" of sync operations. It knows the sequence of steps (scan → diff → transfer → commit) but does not know how to scan a filesystem, send an HTTP request, or display a progress bar.
+This crate contains the protocol rules and storage ports. Executable client transfer orchestration lives in `ttsync-client`, keeping stream/compression dependencies out of core.
 
 #### Traits (Ports)
 
 ```rust
-/// Receives sync lifecycle events. Implemented by CLI (progress bar),
-/// Tauri adapter (emit events), or test harness (collect assertions).
-pub trait SyncEventSink: Send + Sync {
-    fn on_progress(&self, event: SyncProgressEvent);
-    fn on_completed(&self, event: SyncCompletedEvent);
-    fn on_error(&self, event: SyncErrorEvent);
-}
-
 /// Reads and writes the file manifest for the v2 dataset.
 pub trait ManifestStore: Send + Sync {
     async fn scan(&self, policy: ResolvedDatasetPolicy) -> Result<ManifestV2, SyncError>;
@@ -117,8 +116,7 @@ pub trait PeerStore: Send + Sync {
 | `pairing` | Generate pairing tokens, validate incoming pair requests, register peer grants. |
 | `session` | Open/validate sessions: verify Ed25519 signatures, enforce time window, track nonces. |
 | `plan` | Compute pull-plan and push-plan diffs given source and target manifests. |
-| `pull` | Orchestrate pull: request plan → download files → optional mirror delete → emit events. |
-| `push` | Orchestrate push: request plan → upload files → commit → emit events. |
+| `bundle` | Shared bundle framing helpers and capability constants. |
 | `dataset` | Versioned DatasetPolicy split into catalog, public profiles, path exclusions, runtime eligibility helpers, and scope-aware delete boundaries. |
 | `scope` | Compatibility view for the original fixed v2 scope. New code should use `dataset`. |
 
@@ -167,6 +165,8 @@ Routes:
 | `POST` | `/v2/sync/push-plan` | Compute push diff. Returns `PlanId` + file list. |
 | `GET` | `/v2/plans/{plan_id}/files/{path_b64}` | Download file (plan-scoped). |
 | `PUT` | `/v2/plans/{plan_id}/files/{path_b64}` | Upload file (plan-scoped). |
+| `GET` | `/v2/plans/{plan_id}/bundle` | Download a plan-scoped transfer bundle. |
+| `PUT` | `/v2/plans/{plan_id}/bundle` | Upload a plan-scoped transfer bundle. |
 | `POST` | `/v2/plans/{plan_id}/commit` | Finalize push: apply deletions. |
 
 Shared middleware:
@@ -189,7 +189,22 @@ Shared middleware:
 | `SyncClient` | High-level client: open session, request plan, download/upload files, commit. Uses `reqwest`. |
 | SPKI pinning verifier | Custom `ServerCertVerifier` that validates the server's SPKI hash against the pinned value from pairing, ignoring hostname/issuer/expiry. |
 
-### 2.5 `tt-sync` (Presentation Layer)
+### 2.5 `ttsync-client` (Client Orchestration)
+
+**Reusable client-side sync engine for TauriTavern and other native clients.**
+
+This crate owns the client workflow that is too concrete for `ttsync-core` and too reusable to live in a Tauri command handler:
+
+| Component | Responsibility |
+|-----------|---------------|
+| `ClientSyncEngine` | Pull and direct-push sequence: status capability check → session open → permission check → local scan → plan request → plan scope validation → transfer → mirror delete/commit. |
+| `ClientWorkspace` | Local workspace port with scan/read/write/delete. It has a blanket implementation for `ManifestStore`; native clients can implement it when failed writes/deletes need to report local mutation. |
+| `SyncObserver` | Minimal progress callback. Tauri, CLI, and tests map it to their own event systems. |
+| Bundle transfer | Uses `bundle_v1` + `zstd_v1` when advertised, otherwise falls back to per-file endpoints. |
+
+`ttsync-client` intentionally depends on `ttsync-http::client::SyncClient` directly. There is only one transport today, so a transport trait would add ceremony without reducing coupling. The crate stays free of Tauri, AppState, window events, and configuration storage.
+
+### 2.6 `tt-sync` (Presentation Layer)
 
 **Thin shell. No business logic.**
 
@@ -204,7 +219,7 @@ Shared middleware:
 | `cert show` | Displays SPKI fingerprint, cert expiry, key info. |
 | `cert rotate-leaf` | Re-signs cert with same key (preserves SPKI pin). |
 
-Implements `SyncEventSink` → maps events to `indicatif` progress bars and `tracing` log lines.
+When `tt-sync` consumes `ttsync-client`, it maps `SyncObserver` progress to terminal UI and tracing.
 
 ## 3. Security Architecture
 
@@ -349,5 +364,5 @@ Layout adaptation (layout mode + derived mount points) is a `ttsync-fs` concern,
 | `behind-proxy` TLS mode | `TlsMode` trait in `ttsync-http` |
 | Custom scope overlays (include/exclude rules) | `scope` module in `ttsync-core` |
 | BLAKE3 content verification | `ManifestEntryV2.content_hash` field + scanner option in `ttsync-fs` |
-| TauriTavern Tauri adapter | Implements `SyncEventSink` → emits `lan_sync:*` Tauri events |
+| TauriTavern Tauri adapter | Implements `ttsync-client::SyncObserver` → emits `lan_sync:*` Tauri events |
 | WebSocket/SSE notifications | Additional routes in `ttsync-http` server |

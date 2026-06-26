@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use ttsync_contract::manifest::ManifestV2;
 use ttsync_contract::plan::{PlanId, SyncPlan};
@@ -85,7 +85,78 @@ pub fn compute_plan_for_policy(
             .retain(|path| policy.allows_delete(path.as_str()));
     }
     plan.selection = Some(policy.selection().clone());
+    validate_plan_scope(&plan, policy)?;
     Ok(plan)
+}
+
+pub fn validate_plan_scope(
+    plan: &SyncPlan,
+    policy: &ResolvedDatasetPolicy,
+) -> Result<(), SyncError> {
+    if plan.selection.as_ref() != Some(policy.selection()) {
+        return Err(SyncError::InvalidData(
+            "sync plan dataset selection does not match the requested policy".to_owned(),
+        ));
+    }
+
+    if plan.files_total != plan.transfer.len() {
+        return Err(SyncError::InvalidData(format!(
+            "sync plan files_total mismatch: expected {}, got {}",
+            plan.transfer.len(),
+            plan.files_total
+        )));
+    }
+
+    let mut bytes_total = 0u64;
+    let mut transfer_paths = HashSet::new();
+    for entry in &plan.transfer {
+        if !transfer_paths.insert(entry.path.as_str()) {
+            return Err(SyncError::InvalidData(format!(
+                "sync plan contains duplicate transfer path: {}",
+                entry.path
+            )));
+        }
+        bytes_total = bytes_total
+            .checked_add(entry.size_bytes)
+            .ok_or_else(|| SyncError::InvalidData("sync plan bytes_total overflow".into()))?;
+        if !policy.contains_path(entry.path.as_str()) {
+            return Err(SyncError::InvalidData(format!(
+                "sync plan contains transfer outside selected dataset scope: {}",
+                entry.path
+            )));
+        }
+    }
+
+    if plan.bytes_total != bytes_total {
+        return Err(SyncError::InvalidData(format!(
+            "sync plan bytes_total mismatch: expected {}, got {}",
+            bytes_total, plan.bytes_total
+        )));
+    }
+
+    let mut delete_paths = HashSet::new();
+    for path in &plan.delete {
+        if !delete_paths.insert(path.as_str()) {
+            return Err(SyncError::InvalidData(format!(
+                "sync plan contains duplicate delete path: {}",
+                path
+            )));
+        }
+        if transfer_paths.contains(path.as_str()) {
+            return Err(SyncError::InvalidData(format!(
+                "sync plan contains path in both transfer and delete: {}",
+                path
+            )));
+        }
+        if !policy.allows_delete(path.as_str()) {
+            return Err(SyncError::InvalidData(format!(
+                "sync plan contains delete outside selected dataset scope: {}",
+                path
+            )));
+        }
+    }
+
+    Ok(())
 }
 
 fn validate_manifest_scope(
@@ -107,14 +178,14 @@ fn validate_manifest_scope(
 mod tests {
     use ttsync_contract::manifest::{ManifestEntryV2, ManifestV2};
     use ttsync_contract::path::SyncPath;
-    use ttsync_contract::plan::PlanId;
+    use ttsync_contract::plan::{PlanId, SyncPlan};
     use ttsync_contract::sync::SyncMode;
 
     use ttsync_contract::dataset::DatasetSelection;
 
     use crate::dataset::ResolvedDatasetPolicy;
 
-    use super::{compute_plan, compute_plan_for_policy};
+    use super::{compute_plan, compute_plan_for_policy, validate_plan_scope};
 
     fn entry(path: &str, size: u64, mtime: u64) -> ManifestEntryV2 {
         ManifestEntryV2 {
@@ -216,5 +287,55 @@ mod tests {
             "default-user/chats/alice/old.jsonl"
         );
         assert!(plan.selection.is_some());
+    }
+
+    #[test]
+    fn plan_scope_validation_requires_policy_selection() {
+        let selection = DatasetSelection::new(
+            ttsync_contract::dataset::DATASET_POLICY_VERSION,
+            vec!["chat.character.history".to_owned()],
+        );
+        let policy = ResolvedDatasetPolicy::from_selection(&selection).unwrap();
+        let plan = SyncPlan {
+            plan_id: PlanId("test".into()),
+            selection: None,
+            transfer: vec![entry("default-user/chats/alice/chat.jsonl", 1, 1)],
+            delete: vec![],
+            files_total: 1,
+            bytes_total: 1,
+        };
+
+        assert!(validate_plan_scope(&plan, &policy).is_err());
+    }
+
+    #[test]
+    fn plan_scope_validation_rejects_duplicate_paths_and_bad_totals() {
+        let selection = DatasetSelection::new(
+            ttsync_contract::dataset::DATASET_POLICY_VERSION,
+            vec!["chat.character.history".to_owned()],
+        );
+        let policy = ResolvedDatasetPolicy::from_selection(&selection).unwrap();
+        let mut plan = SyncPlan {
+            plan_id: PlanId("test".into()),
+            selection: Some(selection),
+            transfer: vec![
+                entry("default-user/chats/alice/chat.jsonl", 1, 1),
+                entry("default-user/chats/alice/chat.jsonl", 1, 1),
+            ],
+            delete: vec![],
+            files_total: 2,
+            bytes_total: 2,
+        };
+
+        assert!(validate_plan_scope(&plan, &policy).is_err());
+
+        plan.transfer.pop();
+        plan.files_total = 2;
+        plan.bytes_total = 1;
+        assert!(validate_plan_scope(&plan, &policy).is_err());
+
+        plan.files_total = 1;
+        plan.bytes_total = 2;
+        assert!(validate_plan_scope(&plan, &policy).is_err());
     }
 }
