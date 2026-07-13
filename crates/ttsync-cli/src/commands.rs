@@ -209,6 +209,7 @@ fn cmd_init(
         public_url: public_url.to_owned(),
         listen: listen.to_owned(),
         ui: Default::default(),
+        overwrite_policy: Default::default(),
     };
     config::save_config(&ctx.config_path, &config)?;
 

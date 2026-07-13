@@ -176,6 +176,7 @@ where
         &request.target_manifest,
         request.mode,
         &policy,
+        state.overwrite_policy,
     )?;
 
     let response = plan.clone();
@@ -210,6 +211,7 @@ where
         &target_manifest,
         request.mode,
         &policy,
+        state.overwrite_policy,
     )?;
 
     let response = plan.clone();

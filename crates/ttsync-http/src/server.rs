@@ -42,6 +42,7 @@ pub struct ServerState<M, P> {
     pub peer_store: Arc<P>,
     pub session_manager: Arc<SessionManager>,
     pub status: StatusResponse,
+    pub overwrite_policy: ttsync_contract::sync::OverwritePolicy,
     plans: PlanStore,
 }
 
@@ -60,12 +61,21 @@ impl<M, P> ServerState<M, P> {
             peer_store,
             session_manager,
             status: default_status_response(),
+            overwrite_policy: ttsync_contract::sync::OverwritePolicy::default(),
             plans: PlanStore::default(),
         }
     }
 
     pub fn with_status(mut self, status: StatusResponse) -> Self {
         self.status = status;
+        self
+    }
+
+    pub fn with_overwrite_policy(
+        mut self,
+        overwrite_policy: ttsync_contract::sync::OverwritePolicy,
+    ) -> Self {
+        self.overwrite_policy = overwrite_policy;
         self
     }
 

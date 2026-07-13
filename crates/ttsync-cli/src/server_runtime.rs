@@ -58,7 +58,8 @@ pub async fn start_server(ctx: &Context) -> Result<RunningServer, CliError> {
             peer_store,
             session_manager,
         )
-        .with_status(status),
+        .with_status(status)
+        .with_overwrite_policy(config.overwrite_policy),
     );
 
     let addr: SocketAddr = config

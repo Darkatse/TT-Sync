@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use ed25519_dalek::SigningKey;
 use serde::{Deserialize, Serialize};
+use ttsync_contract::sync::OverwritePolicy;
 use ttsync_fs::layout::LayoutMode;
 
 /// Persistent configuration written to `config.toml`.
@@ -19,6 +20,11 @@ pub struct Config {
     pub listen: String,
     #[serde(default)]
     pub ui: UiConfig,
+    /// Whether sync plans may replicate over a strictly newer target copy.
+    /// `exact` keeps the source authoritative; `prefer-newer` protects the
+    /// newer side from stale overwrites (requires synchronized clocks).
+    #[serde(default)]
+    pub overwrite_policy: OverwritePolicy,
 }
 
 fn default_listen() -> String {
