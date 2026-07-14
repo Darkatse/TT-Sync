@@ -236,7 +236,6 @@ impl State {
             ui: UiConfig {
                 language: self.language,
             },
-            overwrite_policy: Default::default(),
         })
     }
 }

@@ -1,4 +1,4 @@
-# TT-Sync: Current State (2026-06-26)
+# TT-Sync: Current State (2026-07-14)
 
 This document is a snapshot of what is **implemented** and what is **still pending** in the TT-Sync workspace.
 
@@ -8,14 +8,16 @@ This document is a snapshot of what is **implemented** and what is **still pendi
 
 - Strong wire types: `SyncPath`, `DeviceId`, `PlanId`, `SessionToken`, `PeerGrant`, `Permissions`.
 - Dataset scope wire contract: `DatasetSelection`, `DATASET_POLICY_VERSION`, `dataset_scope_v1`.
+- Per-operation overwrite contract: `OverwritePolicy::{Exact, PreferNewer}` and `overwrite_policy_v1`.
 - v2 pairing URI: `PairUri` (`tauritavern://tt-sync/pair?...&spki=...`) with render + parse.
 - v2 session headers constants: `TT-Device-Id`, `TT-Timestamp-Ms`, `TT-Nonce`, `TT-Signature`.
 - Canonical request format: `CanonicalRequest` (string form + parse).
-- v2 sync requests: `PullPlanRequest`, `PushPlanRequest`, `CommitResponse`.
+- v2 sync requests: `PullPlanRequest`, `PushPlanRequest`, `CommitResponse`. Plan requests accept an optional `overwrite_policy` field that defaults to `Exact`.
 
 ### `ttsync-core` (use-cases)
 
 - `compute_plan()` algorithm (incremental + mirror) with unit tests.
+- `PreferNewer` skips a changed same-path entry only when the target mtime is strictly newer; Mirror deletion of target-only paths is unchanged.
 - `DatasetPolicy` resolves stable dataset ids and public profile ids into scan roots, files, path predicates, exclusions, runtime eligibility, and scope-aware delete boundaries.
 - `compute_plan_for_policy()` validates source/target manifests against the selected dataset before diffing.
 - `validate_plan_scope()` verifies remote plans before a client applies transfers or deletes.
@@ -63,8 +65,8 @@ This document is a snapshot of what is **implemented** and what is **still pendi
   - `PUT  /v2/plans/{plan_id}/bundle` (upload bundle for push plans)
   - `POST /v2/plans/{plan_id}/commit` (applies mirror deletes on server for push plans)
 - Server-side plan state is stored in-memory with a 30-minute TTL.
-- `/v2/status` advertises `dataset_scope_v1`, `dataset_policy_version`, supported leaf dataset ids, supported profile ids, and default dataset ids.
-- Pull/push plan requests carry `DatasetSelection`; server scanning, manifest validation, transfer plans, and mirror deletes are all scoped to that selection.
+- `/v2/status` advertises `dataset_scope_v1`, `overwrite_policy_v1`, `dataset_policy_version`, supported leaf dataset ids, supported profile ids, and default dataset ids.
+- Pull/push plan requests carry `DatasetSelection` and the logical initiator's overwrite policy; server scanning, manifest validation, transfer plans, and mirror deletes are scoped to the request rather than server configuration.
 
 #### Client (TLS pinning)
 
@@ -77,6 +79,7 @@ This document is a snapshot of what is **implemented** and what is **still pendi
 
 - `ClientSyncEngine` implements reusable pull and direct-push orchestration for native clients:
   - status feature check + `dataset_scope_v1` enforcement
+  - conditional `overwrite_policy_v1` enforcement when `PreferNewer` is selected
   - Ed25519 session open
   - permission checks for read/write/mirror delete
   - local scan via `ClientWorkspace`

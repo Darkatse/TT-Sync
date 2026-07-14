@@ -7,12 +7,5 @@ layout = "tauri-tavern"
 public_url = "https://sync.example.com:8443"
 listen = "0.0.0.0:8443"
 
-# How sync plans treat a target file whose modified time is newer than the
-# source copy. "exact" (default) keeps the source authoritative and transfers
-# every size/mtime mismatch. "prefer-newer" skips such entries so a stale
-# device cannot silently revert the latest write; requires device clocks to
-# be reasonably synchronized (NTP).
-overwrite_policy = "exact"
-
 [ui]
 language = "en"

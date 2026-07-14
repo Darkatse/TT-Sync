@@ -82,6 +82,7 @@ LAN Sync's current architecture (plain HTTP, HMAC shared-secret auth, "notify pe
 - **Each sync operation has exactly one source of truth.** There is no automatic conflict merging.
 - **File access is plan-scoped** — the server only permits access to paths that appear in the active plan, providing a clear security boundary.
 - Diff uses `mtime + size` as the default fast path. BLAKE3 content hashing is available as an optional verification mode.
+- Each sync operation may select `Exact` (source-authoritative, default) or `PreferNewer` (preserve a strictly newer same-path target by mtime). The initiator owns this choice; it is not server configuration.
 
 ### 4.5 Dataset Scope (v2)
 

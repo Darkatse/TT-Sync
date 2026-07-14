@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+pub const OVERWRITE_POLICY_FEATURE_V1: &str = "overwrite_policy_v1";
+
 /// Synchronization mode.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SyncMode {

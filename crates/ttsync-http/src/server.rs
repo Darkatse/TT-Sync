@@ -10,6 +10,7 @@ use axum::http::HeaderMap;
 use axum::routing::{get, post};
 use ttsync_contract::dataset::{DATASET_POLICY_VERSION, DATASET_SCOPE_FEATURE_V1};
 use ttsync_contract::status::StatusResponse;
+use ttsync_contract::sync::OVERWRITE_POLICY_FEATURE_V1;
 use ttsync_core::bundle::{FEATURE_BUNDLE_V1, FEATURE_ZSTD_V1};
 use ttsync_core::dataset::{
     supported_dataset_ids, supported_profile_ids, tauri_tavern_default_selection,
@@ -42,7 +43,6 @@ pub struct ServerState<M, P> {
     pub peer_store: Arc<P>,
     pub session_manager: Arc<SessionManager>,
     pub status: StatusResponse,
-    pub overwrite_policy: ttsync_contract::sync::OverwritePolicy,
     plans: PlanStore,
 }
 
@@ -61,21 +61,12 @@ impl<M, P> ServerState<M, P> {
             peer_store,
             session_manager,
             status: default_status_response(),
-            overwrite_policy: ttsync_contract::sync::OverwritePolicy::default(),
             plans: PlanStore::default(),
         }
     }
 
     pub fn with_status(mut self, status: StatusResponse) -> Self {
         self.status = status;
-        self
-    }
-
-    pub fn with_overwrite_policy(
-        mut self,
-        overwrite_policy: ttsync_contract::sync::OverwritePolicy,
-    ) -> Self {
-        self.overwrite_policy = overwrite_policy;
         self
     }
 
@@ -232,6 +223,7 @@ pub fn default_status_response() -> StatusResponse {
             FEATURE_BUNDLE_V1.to_owned(),
             FEATURE_ZSTD_V1.to_owned(),
             DATASET_SCOPE_FEATURE_V1.to_owned(),
+            OVERWRITE_POLICY_FEATURE_V1.to_owned(),
         ],
         dataset_policy_version: Some(DATASET_POLICY_VERSION),
         supported_dataset_ids: supported_dataset_ids(),
@@ -328,6 +320,16 @@ mod tests {
     fn test_pairing_store() -> PairingTokenStore {
         let state_dir = std::env::temp_dir().join(format!("ttsync-http-test-{}", Uuid::new_v4()));
         PairingTokenStore::from_state_dir(state_dir)
+    }
+
+    #[test]
+    fn status_advertises_overwrite_policy_support() {
+        assert!(
+            default_status_response()
+                .features
+                .iter()
+                .any(|feature| feature == OVERWRITE_POLICY_FEATURE_V1)
+        );
     }
 
     fn pull_plan_body_at_least(min_size: usize) -> String {

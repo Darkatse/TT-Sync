@@ -13,7 +13,7 @@ use ttsync_contract::peer::{DeviceId, Permissions};
 use ttsync_contract::plan::{PlanId, SyncPlan};
 use ttsync_contract::session::SessionToken;
 use ttsync_contract::status::StatusResponse;
-use ttsync_contract::sync::{SyncMode, SyncPhase};
+use ttsync_contract::sync::{OVERWRITE_POLICY_FEATURE_V1, OverwritePolicy, SyncMode, SyncPhase};
 use ttsync_core::bundle::{
     BUNDLE_STREAM_BUFFER_SIZE, BUNDLE_ZSTD_DECODE_BUFFER_SIZE, ExactSizeReader, FEATURE_BUNDLE_V1,
     FEATURE_ZSTD_V1, copy_exact_and_expect_eof, expect_eof,
@@ -35,6 +35,7 @@ pub struct ClientSyncTarget {
 #[derive(Debug, Clone)]
 pub struct ClientSyncOptions {
     pub mode: SyncMode,
+    pub overwrite_policy: OverwritePolicy,
     pub selection: DatasetSelection,
     pub require_bundle_zstd: bool,
     pub file_concurrency: usize,
@@ -44,6 +45,7 @@ impl ClientSyncOptions {
     pub fn new(mode: SyncMode, selection: DatasetSelection) -> Self {
         Self {
             mode,
+            overwrite_policy: OverwritePolicy::default(),
             selection,
             require_bundle_zstd: false,
             file_concurrency: 4,
@@ -228,6 +230,7 @@ where
             .pull_plan(
                 &session_token,
                 options.mode,
+                options.overwrite_policy,
                 options.selection.clone(),
                 target_manifest,
             )
@@ -307,6 +310,7 @@ where
             .push_plan(
                 &session_token,
                 options.mode,
+                options.overwrite_policy,
                 options.selection.clone(),
                 source_manifest,
             )
@@ -357,6 +361,8 @@ where
             .map_err(ClientSyncFailure::without_local_change)?;
         ensure_dataset_scope_v1(&status)
             .map_err(|error| relabel_dataset_error(error, &self.peer_label))
+            .map_err(ClientSyncFailure::without_local_change)?;
+        ensure_overwrite_policy_supported(&status, &self.peer_label, options.overwrite_policy)
             .map_err(ClientSyncFailure::without_local_change)?;
         let transport =
             bundle_transport_for_status(&status, &self.peer_label, options.require_bundle_zstd)
@@ -955,6 +961,25 @@ fn validate_options(options: &ClientSyncOptions) -> Result<(), ClientSyncFailure
         .map_err(ClientSyncFailure::without_local_change)
 }
 
+fn ensure_overwrite_policy_supported(
+    status: &StatusResponse,
+    peer_label: &str,
+    overwrite_policy: OverwritePolicy,
+) -> Result<(), SyncError> {
+    if overwrite_policy == OverwritePolicy::PreferNewer
+        && !status
+            .features
+            .iter()
+            .any(|feature| feature == OVERWRITE_POLICY_FEATURE_V1)
+    {
+        return Err(SyncError::InvalidData(format!(
+            "{peer_label} does not support prefer-newer overwrite policy"
+        )));
+    }
+
+    Ok(())
+}
+
 fn ensure_pull_allowed(permissions: Permissions, mode: SyncMode) -> Result<(), SyncError> {
     if !permissions.read {
         return Err(SyncError::Unauthorized("read not granted".into()));
@@ -1182,13 +1207,13 @@ mod tests {
     use ttsync_http::server::{ServerHandle, ServerState, spawn_server};
     use ttsync_http::tls::{SelfManagedTls, TlsProvider};
 
-    use ttsync_contract::sync::SyncMode;
+    use ttsync_contract::sync::{OverwritePolicy, SyncMode};
 
     use crate::workspace::{ClientWorkspace, WorkspaceWriteError};
 
     use super::{
         BundleTransport, ClientSyncEngine, ClientSyncFailure, ClientSyncOptions, ClientSyncTarget,
-        LocalChangeSummary, NoopSyncObserver,
+        LocalChangeSummary, NoopSyncObserver, ensure_overwrite_policy_supported,
     };
 
     fn chat_selection() -> DatasetSelection {
@@ -1196,6 +1221,21 @@ mod tests {
             DATASET_POLICY_VERSION,
             vec!["chat.character.history".to_owned()],
         )
+    }
+
+    #[test]
+    fn overwrite_policy_feature_is_only_required_for_prefer_newer() {
+        let mut status = ttsync_http::server::default_status_response();
+        status
+            .features
+            .retain(|feature| feature != ttsync_contract::sync::OVERWRITE_POLICY_FEATURE_V1);
+
+        ensure_overwrite_policy_supported(&status, "old peer", OverwritePolicy::Exact)
+            .expect("exact remains compatible with old peers");
+        assert!(
+            ensure_overwrite_policy_supported(&status, "old peer", OverwritePolicy::PreferNewer)
+                .is_err()
+        );
     }
 
     #[test]
@@ -1640,6 +1680,7 @@ mod tests {
 
         let options = ClientSyncOptions {
             mode: SyncMode::Mirror,
+            overwrite_policy: OverwritePolicy::Exact,
             selection: chat_selection(),
             require_bundle_zstd: true,
             file_concurrency: 2,
@@ -1660,6 +1701,7 @@ mod tests {
             .direct_push(
                 ClientSyncOptions {
                     mode: SyncMode::Incremental,
+                    overwrite_policy: OverwritePolicy::Exact,
                     selection: chat_selection(),
                     require_bundle_zstd: true,
                     file_concurrency: 2,
@@ -1704,6 +1746,7 @@ mod tests {
         );
         let options = ClientSyncOptions {
             mode: SyncMode::Incremental,
+            overwrite_policy: OverwritePolicy::Exact,
             selection: chat_selection(),
             require_bundle_zstd: false,
             file_concurrency: 2,
@@ -1714,6 +1757,7 @@ mod tests {
             .pull_plan(
                 &session_token,
                 options.mode,
+                options.overwrite_policy,
                 options.selection.clone(),
                 ManifestV2 {
                     entries: Vec::new(),
@@ -1773,6 +1817,7 @@ mod tests {
             .direct_push(
                 ClientSyncOptions {
                     mode: SyncMode::Incremental,
+                    overwrite_policy: OverwritePolicy::Exact,
                     selection: chat_selection(),
                     require_bundle_zstd: true,
                     file_concurrency: 2,

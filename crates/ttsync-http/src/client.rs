@@ -23,7 +23,7 @@ use ttsync_contract::session::{
     SessionOpenResponse, SessionToken,
 };
 use ttsync_contract::status::StatusResponse;
-use ttsync_contract::sync::SyncMode;
+use ttsync_contract::sync::{OverwritePolicy, SyncMode};
 use ttsync_core::bundle::BUNDLE_CONTENT_TYPE;
 use ttsync_core::crypto::{random_base64url, sha256_base64url, sign_ed25519_b64url};
 use ttsync_core::error::SyncError;
@@ -205,12 +205,14 @@ impl SyncClient {
         &self,
         session_token: &SessionToken,
         mode: SyncMode,
+        overwrite_policy: OverwritePolicy,
         selection: DatasetSelection,
         target_manifest: ManifestV2,
     ) -> Result<SyncPlan, SyncError> {
         let url = endpoint_url(&self.base_url, "/v2/sync/pull-plan")?;
         let request = PullPlanRequest {
             mode,
+            overwrite_policy,
             selection,
             target_manifest,
         };
@@ -240,12 +242,14 @@ impl SyncClient {
         &self,
         session_token: &SessionToken,
         mode: SyncMode,
+        overwrite_policy: OverwritePolicy,
         selection: DatasetSelection,
         source_manifest: ManifestV2,
     ) -> Result<SyncPlan, SyncError> {
         let url = endpoint_url(&self.base_url, "/v2/sync/push-plan")?;
         let request = PushPlanRequest {
             mode,
+            overwrite_policy,
             selection,
             source_manifest,
         };
@@ -761,7 +765,7 @@ mod integration_tests {
     use ttsync_contract::pair::PairCompleteRequest;
     use ttsync_contract::path::SyncPath;
     use ttsync_contract::peer::{DeviceId, PeerGrant, Permissions};
-    use ttsync_contract::sync::SyncMode;
+    use ttsync_contract::sync::{OverwritePolicy, SyncMode};
     use ttsync_core::crypto::device_pubkey_b64url;
     use ttsync_core::dataset::ResolvedDatasetPolicy;
     use ttsync_core::error::SyncError;
@@ -1026,10 +1030,43 @@ mod integration_tests {
             .expect("open session");
         let selection = chat_selection();
 
+        let newer_target = ManifestV2 {
+            entries: vec![ManifestEntryV2 {
+                path: SyncPath::new("default-user/chats/server.jsonl".to_owned())
+                    .expect("valid sync path"),
+                size_bytes: 6,
+                modified_ms: 2345,
+                content_hash: None,
+            }],
+        };
+        let prefer_newer_pull = client
+            .pull_plan(
+                &session.session_token,
+                SyncMode::Incremental,
+                OverwritePolicy::PreferNewer,
+                selection.clone(),
+                newer_target.clone(),
+            )
+            .await
+            .expect("prefer-newer pull plan");
+        assert!(prefer_newer_pull.transfer.is_empty());
+        let exact_pull = client
+            .pull_plan(
+                &session.session_token,
+                SyncMode::Incremental,
+                OverwritePolicy::Exact,
+                selection.clone(),
+                newer_target,
+            )
+            .await
+            .expect("exact pull plan");
+        assert_eq!(exact_pull.transfer.len(), 1);
+
         let pull_plan = client
             .pull_plan(
                 &session.session_token,
                 SyncMode::Incremental,
+                OverwritePolicy::Exact,
                 selection.clone(),
                 ManifestV2 { entries: vec![] },
             )
@@ -1050,12 +1087,45 @@ mod integration_tests {
             b"server"
         );
 
+        let older_source = ManifestV2 {
+            entries: vec![ManifestEntryV2 {
+                path: SyncPath::new("default-user/chats/server.jsonl".to_owned())
+                    .expect("valid sync path"),
+                size_bytes: 6,
+                modified_ms: 1000,
+                content_hash: None,
+            }],
+        };
+        let prefer_newer_push = client
+            .push_plan(
+                &session.session_token,
+                SyncMode::Incremental,
+                OverwritePolicy::PreferNewer,
+                selection.clone(),
+                older_source.clone(),
+            )
+            .await
+            .expect("prefer-newer push plan");
+        assert!(prefer_newer_push.transfer.is_empty());
+        let exact_push = client
+            .push_plan(
+                &session.session_token,
+                SyncMode::Incremental,
+                OverwritePolicy::Exact,
+                selection.clone(),
+                older_source,
+            )
+            .await
+            .expect("exact push plan");
+        assert_eq!(exact_push.transfer.len(), 1);
+
         let pushed_path =
             SyncPath::new("default-user/chats/client.jsonl".to_owned()).expect("valid sync path");
         let push_plan = client
             .push_plan(
                 &session.session_token,
                 SyncMode::Incremental,
+                OverwritePolicy::Exact,
                 selection,
                 ManifestV2 {
                     entries: vec![ManifestEntryV2 {
@@ -1102,6 +1172,7 @@ mod integration_tests {
             .push_plan(
                 &session.session_token,
                 SyncMode::Incremental,
+                OverwritePolicy::Exact,
                 chat_selection(),
                 ManifestV2 {
                     entries: vec![

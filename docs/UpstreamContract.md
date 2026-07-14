@@ -445,6 +445,12 @@ Upstream plan is:
 
 This is a **mtime+size based** incremental strategy (no content hashing).
 
+TT-Sync keeps this behavior as the default `Exact` overwrite policy. Its
+optional `PreferNewer` policy only removes a changed same-path entry from the
+transfer plan when the target `modified_ms` is strictly greater than the
+source value. It does not change target-only Mirror deletion, reverse the
+sync direction, or add content hashing.
+
 ### 7.4 Download/apply semantics (atomicity + timestamps)
 
 For each planned download entry:

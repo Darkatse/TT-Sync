@@ -66,6 +66,7 @@ This crate is the shared language between TT-Sync and TauriTavern. It must be us
 | `SyncPath` | Newtype over `String`. Validated at construction: UTF-8, forward-slash separated, no `..`, no leading `/`, no backslash. Once constructed, always valid. |
 | `DeviceId` | Newtype `String`. UUID format. |
 | `SyncMode` | Enum: `Incremental`, `Mirror`. |
+| `OverwritePolicy` | Per-operation enum: `Exact` (default) or `PreferNewer`; owned by the logical sync initiator. |
 | `ManifestEntryV2` | `{ path: SyncPath, size_bytes: u64, modified_ms: u64, content_hash: Option<String> }` |
 | `ManifestV2` | `{ entries: Vec<ManifestEntryV2> }` |
 | `PlanId` | Newtype `String`. Server-generated, opaque to clients. |
@@ -76,6 +77,12 @@ This crate is the shared language between TT-Sync and TauriTavern. It must be us
 | `PairUri` | Structured pair URI builder/parser: `tauritavern://tt-sync/pair?v=2&url=...&token=...&exp=...&spki=...` |
 | `CanonicalRequest` | Builder for the v2 canonical signature format. |
 | `DatasetSelection` | Wire-level selected dataset ids + policy version. Plan requests must include it explicitly; missing selection is rejected. |
+
+`PullPlanRequest` and `PushPlanRequest` carry `overwrite_policy`. The field is
+optional on the wire and defaults to `Exact`, so existing v2 clients retain
+their previous source-authoritative behavior. A client selecting
+`PreferNewer` requires the peer to advertise `overwrite_policy_v1` before it
+opens a session or scans its workspace.
 
 #### Design Rules
 

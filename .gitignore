@@ -24,6 +24,7 @@ target
 .cache
 .tt-sync
 .env
+.DS_Store
 
 # Upstream ignores
 TauriTavern
