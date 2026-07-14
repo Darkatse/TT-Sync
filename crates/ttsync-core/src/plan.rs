@@ -3,16 +3,25 @@ use std::collections::{HashMap, HashSet};
 use ttsync_contract::dataset::DatasetSelection;
 use ttsync_contract::manifest::ManifestV2;
 use ttsync_contract::plan::{PlanId, SyncPlan};
-use ttsync_contract::sync::SyncMode;
+use ttsync_contract::sync::{OverwritePolicy, SyncMode};
 
 use crate::dataset::ResolvedDatasetPolicy;
 use crate::error::SyncError;
 
 /// Compute a synchronization plan by diffing source and target manifests.
 ///
-/// - `source`: the manifest of the authoritative side (the data to replicate from).
+/// - `source`: the manifest of the side to replicate from.
 /// - `target`: the manifest of the receiving side (the data to replicate to).
 /// - `mode`: whether to include deletions for files missing on the source side.
+/// - `overwrite`: with [`OverwritePolicy::Exact`] every `(size_bytes,
+///   modified_ms)` mismatch transfers and the source is authoritative; with
+///   [`OverwritePolicy::PreferNewer`] entries whose target copy has a strictly
+///   newer `modified_ms` are skipped (in Mirror mode too), so a stale source
+///   cannot revert the target's latest write. PreferNewer assumes device
+///   clocks are reasonably synchronized — a target clock running ahead can
+///   make a stale copy look newer and suppress replication of a genuine edit —
+///   and treats a source `modified_ms` of 0 as oldest, never replacing a
+///   timestamped target copy.
 ///
 /// Returns a plan describing which files to transfer and (if mirror mode) which to delete.
 fn compute_plan(
@@ -21,6 +30,7 @@ fn compute_plan(
     target: &ManifestV2,
     mode: SyncMode,
     selection: DatasetSelection,
+    overwrite: OverwritePolicy,
 ) -> SyncPlan {
     let source_index: HashMap<&str, ()> = source
         .entries
@@ -38,11 +48,21 @@ fn compute_plan(
     let mut bytes_total = 0u64;
 
     for entry in &source.entries {
-        let unchanged = target_index
-            .get(entry.path.as_str())
-            .is_some_and(|&(size, mtime)| size == entry.size_bytes && mtime == entry.modified_ms);
+        let transfer_needed = match target_index.get(entry.path.as_str()) {
+            Some(&(size, mtime)) => {
+                let changed = size != entry.size_bytes || mtime != entry.modified_ms;
+                match overwrite {
+                    OverwritePolicy::Exact => changed,
+                    // Preserve a strictly newer target copy; an mtime tie with
+                    // differing sizes still transfers, since the direction
+                    // cannot be inferred.
+                    OverwritePolicy::PreferNewer => changed && mtime <= entry.modified_ms,
+                }
+            }
+            None => true,
+        };
 
-        if !unchanged {
+        if transfer_needed {
             bytes_total += entry.size_bytes;
             transfer.push(entry.clone());
         }
@@ -77,11 +97,19 @@ pub fn compute_plan_for_policy(
     target: &ManifestV2,
     mode: SyncMode,
     policy: &ResolvedDatasetPolicy,
+    overwrite: OverwritePolicy,
 ) -> Result<SyncPlan, SyncError> {
     validate_manifest_scope(source, policy)?;
     validate_manifest_scope(target, policy)?;
 
-    let mut plan = compute_plan(plan_id, source, target, mode, policy.selection().clone());
+    let mut plan = compute_plan(
+        plan_id,
+        source,
+        target,
+        mode,
+        policy.selection().clone(),
+        overwrite,
+    );
     if mode == SyncMode::Mirror {
         plan.delete
             .retain(|path| policy.allows_delete(path.as_str()));
@@ -164,7 +192,17 @@ fn validate_manifest_scope(
     manifest: &ManifestV2,
     policy: &ResolvedDatasetPolicy,
 ) -> Result<(), SyncError> {
+    let mut seen = HashSet::new();
     for entry in &manifest.entries {
+        // Duplicate paths must be rejected: the plan diff indexes manifests
+        // into last-wins maps, so a crafted duplicate could otherwise decide
+        // the newer-wins comparison with a stale entry.
+        if !seen.insert(entry.path.as_str()) {
+            return Err(SyncError::InvalidData(format!(
+                "manifest contains duplicate path: {}",
+                entry.path
+            )));
+        }
         if !policy.contains_path(entry.path.as_str()) {
             return Err(SyncError::InvalidData(format!(
                 "manifest path outside selected dataset scope: {}",
@@ -180,7 +218,7 @@ mod tests {
     use ttsync_contract::manifest::{ManifestEntryV2, ManifestV2};
     use ttsync_contract::path::SyncPath;
     use ttsync_contract::plan::{PlanId, SyncPlan};
-    use ttsync_contract::sync::SyncMode;
+    use ttsync_contract::sync::{OverwritePolicy, SyncMode};
 
     use ttsync_contract::dataset::DatasetSelection;
 
@@ -222,6 +260,7 @@ mod tests {
             &target,
             SyncMode::Incremental,
             dataset_selection(&["chat.character.history"]),
+            OverwritePolicy::Exact,
         );
         assert_eq!(plan.files_total, 1);
         assert_eq!(
@@ -229,6 +268,169 @@ mod tests {
             "default-user/chats/alice/b.jsonl"
         );
         assert!(plan.delete.is_empty());
+    }
+
+    #[test]
+    fn exact_transfers_even_when_target_copy_is_newer() {
+        let source = ManifestV2 {
+            entries: vec![entry("default-user/chats/alice/a.jsonl", 100, 1000)],
+        };
+        let target = ManifestV2 {
+            entries: vec![entry("default-user/chats/alice/a.jsonl", 120, 2000)],
+        };
+
+        let plan = compute_plan(
+            PlanId("test".into()),
+            &source,
+            &target,
+            SyncMode::Incremental,
+            dataset_selection(&["chat.character.history"]),
+            OverwritePolicy::Exact,
+        );
+        assert_eq!(plan.files_total, 1);
+        assert_eq!(
+            plan.transfer[0].path.as_str(),
+            "default-user/chats/alice/a.jsonl"
+        );
+    }
+
+    #[test]
+    fn skips_transfer_when_target_copy_is_newer() {
+        let source = ManifestV2 {
+            entries: vec![entry("default-user/chats/alice/a.jsonl", 100, 1000)],
+        };
+        let target = ManifestV2 {
+            entries: vec![entry("default-user/chats/alice/a.jsonl", 120, 2000)],
+        };
+
+        let plan = compute_plan(
+            PlanId("test".into()),
+            &source,
+            &target,
+            SyncMode::Incremental,
+            dataset_selection(&["chat.character.history"]),
+            OverwritePolicy::PreferNewer,
+        );
+        assert!(plan.transfer.is_empty());
+        assert_eq!(plan.files_total, 0);
+        assert_eq!(plan.bytes_total, 0);
+    }
+
+    #[test]
+    fn skips_transfer_when_target_mtime_is_newer_and_sizes_match() {
+        let source = ManifestV2 {
+            entries: vec![entry("default-user/chats/alice/a.jsonl", 100, 1000)],
+        };
+        let target = ManifestV2 {
+            entries: vec![entry("default-user/chats/alice/a.jsonl", 100, 2000)],
+        };
+
+        let plan = compute_plan(
+            PlanId("test".into()),
+            &source,
+            &target,
+            SyncMode::Incremental,
+            dataset_selection(&["chat.character.history"]),
+            OverwritePolicy::PreferNewer,
+        );
+        assert!(plan.transfer.is_empty());
+        assert_eq!(plan.files_total, 0);
+        assert_eq!(plan.bytes_total, 0);
+    }
+
+    #[test]
+    fn transfers_when_source_copy_is_newer() {
+        let source = ManifestV2 {
+            entries: vec![entry("default-user/chats/alice/a.jsonl", 120, 2000)],
+        };
+        let target = ManifestV2 {
+            entries: vec![entry("default-user/chats/alice/a.jsonl", 100, 1000)],
+        };
+
+        let plan = compute_plan(
+            PlanId("test".into()),
+            &source,
+            &target,
+            SyncMode::Incremental,
+            dataset_selection(&["chat.character.history"]),
+            OverwritePolicy::PreferNewer,
+        );
+        assert_eq!(plan.files_total, 1);
+        assert_eq!(
+            plan.transfer[0].path.as_str(),
+            "default-user/chats/alice/a.jsonl"
+        );
+    }
+
+    #[test]
+    fn transfers_when_sizes_differ_and_mtimes_match() {
+        let source = ManifestV2 {
+            entries: vec![entry("default-user/chats/alice/a.jsonl", 100, 1000)],
+        };
+        let target = ManifestV2 {
+            entries: vec![entry("default-user/chats/alice/a.jsonl", 120, 1000)],
+        };
+
+        let plan = compute_plan(
+            PlanId("test".into()),
+            &source,
+            &target,
+            SyncMode::Incremental,
+            dataset_selection(&["chat.character.history"]),
+            OverwritePolicy::PreferNewer,
+        );
+        assert_eq!(plan.files_total, 1);
+    }
+
+    #[test]
+    fn policy_plan_rejects_duplicate_manifest_paths() {
+        let selection = dataset_selection(&["chat.character.history"]);
+        let policy = ResolvedDatasetPolicy::from_selection(&selection).unwrap();
+        let source = ManifestV2 { entries: vec![] };
+        let target = ManifestV2 {
+            entries: vec![
+                entry("default-user/chats/alice/a.jsonl", 100, 2000),
+                entry("default-user/chats/alice/a.jsonl", 100, 1000),
+            ],
+        };
+
+        let result = compute_plan_for_policy(
+            PlanId("test".into()),
+            &source,
+            &target,
+            SyncMode::Incremental,
+            &policy,
+            OverwritePolicy::PreferNewer,
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn mirror_still_deletes_paths_missing_from_source_regardless_of_mtime() {
+        let source = ManifestV2 {
+            entries: vec![entry("default-user/chats/alice/kept.jsonl", 10, 100)],
+        };
+        let target = ManifestV2 {
+            entries: vec![
+                entry("default-user/chats/alice/kept.jsonl", 10, 100),
+                entry("default-user/chats/alice/new.jsonl", 50, 9999),
+            ],
+        };
+
+        let plan = compute_plan(
+            PlanId("test".into()),
+            &source,
+            &target,
+            SyncMode::Mirror,
+            dataset_selection(&["chat.character.history"]),
+            OverwritePolicy::PreferNewer,
+        );
+        assert_eq!(plan.delete.len(), 1);
+        assert_eq!(
+            plan.delete[0].as_str(),
+            "default-user/chats/alice/new.jsonl"
+        );
     }
 
     #[test]
@@ -249,6 +451,7 @@ mod tests {
             &target,
             SyncMode::Mirror,
             dataset_selection(&["chat.character.history"]),
+            OverwritePolicy::Exact,
         );
         assert_eq!(plan.files_total, 0);
         assert_eq!(plan.delete.len(), 1);
@@ -273,6 +476,7 @@ mod tests {
             &target,
             SyncMode::Mirror,
             &policy,
+            OverwritePolicy::Exact,
         );
 
         assert!(result.is_err());
@@ -293,6 +497,7 @@ mod tests {
             &target,
             SyncMode::Mirror,
             &policy,
+            OverwritePolicy::Exact,
         )
         .unwrap();
 
