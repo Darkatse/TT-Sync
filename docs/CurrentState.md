@@ -1,4 +1,4 @@
-# TT-Sync: Current State (2026-07-14)
+# TT-Sync: Current State (2026-07-18)
 
 This document is a snapshot of what is **implemented** and what is **still pending** in the TT-Sync workspace.
 
@@ -18,7 +18,7 @@ This document is a snapshot of what is **implemented** and what is **still pendi
 
 - `compute_plan()` algorithm (incremental + mirror) with unit tests.
 - `PreferNewer` skips a changed same-path entry only when the target mtime is strictly newer; Mirror deletion of target-only paths is unchanged.
-- `DatasetPolicy` resolves stable dataset ids and public profile ids into scan roots, files, path predicates, exclusions, runtime eligibility, and scope-aware delete boundaries.
+- `DatasetPolicy` resolves stable dataset ids and public profile ids into scan roots, files, path predicates, exclusions, runtime eligibility, and scope-aware delete boundaries. `prune_boundary_for_path()` rejects paths outside the catalog, disables parent pruning for exact-file datasets, and selects the deepest matching scan root for directory datasets.
 - `compute_plan_for_policy()` validates source/target manifests against the selected dataset before diffing.
 - `validate_plan_scope()` verifies remote plans before a client applies transfers or deletes.
 - Shared bundle framing helpers and capability constants (`bundle_v1`, `zstd_v1`).
@@ -38,7 +38,8 @@ This document is a snapshot of what is **implemented** and what is **still pendi
 - Manifest scanning: `scan_manifest(mounts, policy)` produces `ManifestV2` using canonical **wire paths** and the selected DatasetPolicy.
 - TauriTavern Agent run history scanning only includes terminal runs (`completed`, `partial_success`, `cancelled`, `failed`); active run directories and run-index files stay out of manifests.
 - `FsManifestStore` implements `ttsync-core::ports::ManifestStore`.
-- Atomic writes + mtime preservation: `writer::write_file_atomic(...)` and `writer::delete_file(...)`.
+- Atomic writes + mtime preservation: `writer::write_file_atomic(...)`.
+- Mirror deletion: `writer::delete_file(...)` ensures the planned file is absent and then prunes ancestor trees containing only real directories, stopping at the owning dataset boundary or any non-directory node. Missing files remain idempotent and still complete the directory-cleanup postcondition.
 - `JsonPeerStore` persists peers in `<state-dir>/peers.json` and implements `ttsync-core::ports::PeerStore`.
 
 ### `ttsync-http` (HTTP + TLS adapters)
@@ -87,7 +88,7 @@ This document is a snapshot of what is **implemented** and what is **still pendi
   - DatasetPolicy plan-scope validation before applying changes
   - bundle/zstd transfer when supported, with per-file fallback
   - mirror delete handling and push commit
-- `ClientWorkspace` has a blanket implementation for any `ManifestStore`, and lets native adapters report whether a failed write/delete may have changed local state.
+- `ClientWorkspace` lets native adapters report whether a failed write/delete may have changed local state.
 - `SyncObserver` reports progress without depending on Tauri events, CLI progress bars, or any UI runtime.
 - End-to-end client test spins up the real HTTPS server and exercises bundle+zstd pull and push.
 

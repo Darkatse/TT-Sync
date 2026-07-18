@@ -476,6 +476,15 @@ If effective sync mode is `"Mirror"`:
 - Delete every file in `plan.delete` using `remove_file`.
 - Missing/unremovable files are treated as an error (upstream does not ignore `NotFound` here).
 
+TT-Sync v2 keeps `plan.delete`, progress, and file counters file-only, but its
+filesystem adapter extends target materialization after ensuring each planned
+file is absent: it removes ancestor trees containing only real directories
+without crossing the owning DatasetPolicy boundary. Any file, link, or other
+non-directory node stops pruning. TT-Sync retains its existing idempotent
+handling of a missing planned file and still applies the same directory-cleanup
+postcondition. This does not make historical directory-only residue visible to
+a later manifest or no-op Mirror plan.
+
 If mode is `"Incremental"`:
 
 - `plan.delete` is ignored.

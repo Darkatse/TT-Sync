@@ -5,7 +5,7 @@ mod profile;
 mod runtime;
 
 pub use path::is_excluded;
-pub use policy::ResolvedDatasetPolicy;
+pub use policy::{ResolvedDatasetPolicy, prune_boundary_for_path};
 pub use profile::{
     AGENT_RUN_HISTORY_FULL_PROFILE_ID, TAURI_TAVERN_DEFAULT_PROFILE_ID,
     TAURI_TAVERN_FULL_PROFILE_ID, supported_dataset_ids, supported_profile_ids,
@@ -128,6 +128,36 @@ mod tests {
         assert!(policy.contains_path("default-user/chats/alice/not.tmp-user.jsonl"));
         assert!(!policy.contains_path("default-user/chats/alice/chat.jsonl.ttsync.tmp"));
         assert!(!policy.contains_path("default-user/chats/alice/.tmp-write/chat.jsonl"));
+    }
+
+    #[test]
+    fn prune_boundaries_follow_dataset_ownership() {
+        assert_eq!(
+            prune_boundary_for_path("extensions/third-party/example/.git/HEAD").unwrap(),
+            Some("extensions/third-party")
+        );
+        assert_eq!(
+            prune_boundary_for_path("_tauritavern/extension-sources/local/source.json").unwrap(),
+            Some("_tauritavern/extension-sources/local")
+        );
+        assert_eq!(
+            prune_boundary_for_path("_tauritavern/agent-workspaces/index/runs/run-1.json").unwrap(),
+            Some("_tauritavern/agent-workspaces/index/runs")
+        );
+        assert_eq!(
+            prune_boundary_for_path("default-user/user/images/chat/image.png").unwrap(),
+            Some("default-user/user/images")
+        );
+        assert_eq!(
+            prune_boundary_for_path("default-user/settings.json").unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn prune_boundary_rejects_paths_outside_dataset_scope() {
+        assert!(prune_boundary_for_path("outside/file.txt").is_err());
+        assert!(prune_boundary_for_path("default-user/chats/.staging/file.jsonl").is_err());
     }
 
     #[test]

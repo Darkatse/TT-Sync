@@ -124,7 +124,7 @@ pub trait PeerStore: Send + Sync {
 | `session` | Open/validate sessions: verify Ed25519 signatures, enforce time window, track nonces. |
 | `plan` | Compute pull-plan and push-plan diffs given source and target manifests. |
 | `bundle` | Shared bundle framing helpers and capability constants. |
-| `dataset` | Versioned DatasetPolicy split into catalog, public profiles, path exclusions, runtime eligibility helpers, and scope-aware delete boundaries. |
+| `dataset` | Versioned DatasetPolicy split into catalog, public profiles, path exclusions, runtime eligibility helpers, and `prune_boundary_for_path()` for scope-aware delete boundaries. |
 
 #### Error Type
 
@@ -150,6 +150,7 @@ Intentionally simple. Maps cleanly to HTTP status codes at the adapter boundary.
 | DatasetPolicy scanning | Walks policy scan roots and filters candidate files through the selected dataset predicates. |
 | Runtime eligibility | Keeps active TauriTavern Agent runs out of manifests until their run status is terminal. |
 | Atomic write | Write to `{name}.{ext}.ttsync.tmp` → `rename` to final path. Same pattern as current LAN Sync. |
+| Mirror delete | Deletes each planned file, then removes fileless ancestor trees without crossing the owning dataset boundary. Links and all other non-directory nodes stop pruning. |
 | mtime preservation | Uses `filetime` to set modification time after write. |
 | Path mapping | Translates `SyncPath` (wire format, always `/`-separated) to platform-native `PathBuf`. |
 | Layout mapping | Maps canonical wire paths to derived mount points (`LayoutMode` + `WorkspaceMounts`). Mapping stays inside this adapter — never leaks to wire protocol. |
@@ -204,7 +205,7 @@ This crate owns the client workflow that is too concrete for `ttsync-core` and t
 | Component | Responsibility |
 |-----------|---------------|
 | `ClientSyncEngine` | Pull and direct-push sequence: status capability check → session open → permission check → local scan → plan request → plan scope validation → transfer → mirror delete/commit. |
-| `ClientWorkspace` | Local workspace port with scan/read/write/delete. It has a blanket implementation for `ManifestStore`; native clients can implement it when failed writes/deletes need to report local mutation. |
+| `ClientWorkspace` | Local workspace port with scan/read/write/delete. Native clients implement it directly so failed writes/deletes can report whether local state changed. |
 | `SyncObserver` | Minimal progress callback. Tauri, CLI, and tests map it to their own event systems. |
 | Bundle transfer | Uses `bundle_v1` + `zstd_v1` when advertised, otherwise falls back to per-file endpoints. |
 

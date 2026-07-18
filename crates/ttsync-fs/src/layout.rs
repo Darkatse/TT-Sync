@@ -91,8 +91,10 @@ impl WorkspaceMounts {
 
 /// Resolve a wire-format SyncPath to an absolute local file path.
 pub fn resolve_to_local(mounts: &WorkspaceMounts, sync_path: &SyncPath) -> PathBuf {
-    let value = sync_path.as_str();
+    resolve_canonical_to_local(mounts, sync_path.as_str())
+}
 
+pub(crate) fn resolve_canonical_to_local(mounts: &WorkspaceMounts, value: &str) -> PathBuf {
     if let Some(rest) = value.strip_prefix("default-user/") {
         return join_segments(&mounts.default_user_root, rest);
     }
@@ -310,6 +312,35 @@ mod tests {
             resolve_to_local(&mounts, &data_path),
             PathBuf::from("data/_TauriTavern/extension-sources/local/x.json")
         );
+    }
+
+    #[test]
+    fn resolves_third_party_boundary_for_every_layout() {
+        let cases = [
+            (
+                LayoutMode::TauriTavern,
+                Path::new("workspace"),
+                PathBuf::from("workspace/extensions/third-party"),
+            ),
+            (
+                LayoutMode::SillyTavern,
+                Path::new("repo"),
+                PathBuf::from("repo/public/scripts/extensions/third-party"),
+            ),
+            (
+                LayoutMode::SillyTavernDocker,
+                Path::new("docker"),
+                PathBuf::from("docker/extensions"),
+            ),
+        ];
+
+        for (mode, workspace, expected) in cases {
+            let mounts = WorkspaceMounts::derive(mode, workspace).unwrap();
+            assert_eq!(
+                resolve_canonical_to_local(&mounts, "extensions/third-party"),
+                expected
+            );
+        }
     }
 
     #[test]

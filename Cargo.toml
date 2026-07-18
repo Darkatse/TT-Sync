@@ -10,7 +10,7 @@ members = [
 ]
 
 [workspace.package]
-version = "2.3.0"
+version = "2.3.1"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/Darkatse/TT-Sync"
@@ -62,8 +62,8 @@ url = "2"
 blake3 = "1"
 
 # Internal crates
-ttsync-contract = { path = "crates/ttsync-contract", version = "2.3.0" }
-ttsync-core = { path = "crates/ttsync-core", version = "2.3.0" }
-ttsync-fs = { path = "crates/ttsync-fs", version = "2.3.0" }
-ttsync-http = { path = "crates/ttsync-http", version = "2.3.0", default-features = false }
-ttsync-client = { path = "crates/ttsync-client", version = "2.3.0" }
+ttsync-contract = { path = "crates/ttsync-contract", version = "2.3.1" }
+ttsync-core = { path = "crates/ttsync-core", version = "2.3.1" }
+ttsync-fs = { path = "crates/ttsync-fs", version = "2.3.1" }
+ttsync-http = { path = "crates/ttsync-http", version = "2.3.1", default-features = false }
+ttsync-client = { path = "crates/ttsync-client", version = "2.3.1" }
