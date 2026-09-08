@@ -40,6 +40,10 @@
 
 ---
 
+## 使用 AI 协助安装
+
+可以将 [TT-Sync Skill](./skills/tt-sync/SKILL.md) 交给 AI 助手，按手动 TUI、自动化 CLI 或 Docker 的方式完成安装与使用。支持技能的工具可加载 `skills/tt-sync` 目录，也可以直接让 AI 阅读该文件。
+
 ## 安装
 
 ### 一键安装
@@ -151,7 +155,7 @@ docker compose run --rm tt-sync pair open --rw
   - `layout` 则根据你同步的目标数据目录结构选择，可选值为 `tauri-tavern`, `silly-tavern` 和 `silly-tavern-docker`，具体区别请看 [Layout Mode](./README.md#layout-mode) 小节
 - 首次启动时会自动生成 `identity.json` 和 TLS 证书，不需要你手搓密钥
 
-更完整的说明、`init` 工作流、`docker run` 方式和权限建议请看：[Docker 指南](./docs/Docker.md)
+容器目录和反向代理的约定见 [Docker 部署](./docs/Docker.md)，各项配置见 [配置示例](./config.toml.example)。
 
 ---
 
@@ -261,15 +265,7 @@ TT-Sync v2 使用固定的**全量同步数据集**。需要选择的是你本�
 
 ## 开发者文档
 
-如果想进行开发，欢迎查看文档哦~
-
-- [Docker 指南](./docs/Docker.md)
-- [CLI 参考](./docs/CLI.md)
-- [外部证书与反向代理](./docs/Docker.md#9-external-certificates-and-reverse-proxies)
-- [系统架构](./docs/Architecture.md)
-- [当前实现状态](./docs/CurrentState.md)
-- [上游协议契约](./docs/UpstreamContract.md)
-- [技术栈](./docs/TechStack.md)
+从 [维护指南](./docs/README.md) 开始阅读。架构边界、运行约定和发布流程集中在这里；配置字段见 [配置示例](./config.toml.example)。
 
 ---
 

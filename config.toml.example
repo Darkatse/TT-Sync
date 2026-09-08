@@ -1,23 +1,119 @@
-# Example config for CLI and Docker deployments.
-# Typical container usage:
+# TT-Sync 配置示例 / TT-Sync example configuration
+#
+# 默认读取可执行文件旁的 config.toml。命令行可用 --config-file 指定其他文件。
+# TT-Sync reads config.toml next to the executable by default.
+# CLI commands can use --config-file to select another file.
+#
+# Docker 启动示例 / Docker startup example:
 #   tt-sync --state-dir /state --config-file /state/config.toml serve
+#
+# 修改配置后，请重启正在运行的 TT-Sync 服务。
+# Restart the running TT-Sync server after changing this file.
 
+# 待同步数据所在的目录（必填），具体目录结构由下方的 layout 决定。
+# The folder containing your sync data (required). The layout option below
+# tells TT-Sync how the files are organized.
+#
+# 建议使用绝对路径。Windows 路径可写成 C:/TauriTavern/data。
+# Prefer an absolute path. On Windows, you can write C:/TauriTavern/data.
+# Docker 部署时填写容器内的路径，例如挂载后的 /data。
+# In Docker, use the path inside the container, such as /data after mounting.
 workspace_path = "/data"
+
+# 按数据来源选择目录结构，省略时使用 tauri-tavern。
+# Choose the layout of your data source. Defaults to tauri-tavern when omitted.
+# TT-Sync 本身是否通过 Docker 运行，不影响这个选项的选择。
+# Choose this based on your data, regardless of how TT-Sync itself is deployed.
+#
+# tauri-tavern：TauriTavern 的数据目录，workspace_path 填写 data 目录。
+# tauri-tavern: TauriTavern data; set workspace_path to its data directory.
+# silly-tavern：SillyTavern 常规安装，填写安装根目录、data 或 data/default-user。
+# silly-tavern: A regular SillyTavern installation; use its installation root,
+#              data directory, or data/default-user directory.
+# silly-tavern-docker：SillyTavern 的 Docker 目录结构，填写包含 data 和 extensions 的目录。
+# silly-tavern-docker: SillyTavern's Docker layout; use the directory containing
+#                     both data and extensions.
 layout = "tauri-tavern"
+
+# 客户端连接时使用的 HTTPS 地址（必填），TT-Sync 会将它写入配对链接。
+# The HTTPS address clients use to connect (required). TT-Sync includes it
+# in pairing links.
+#
+# 将示例域名替换为客户端可访问的域名或 IP，地址格式为 https://主机[:端口]。
+# Replace the example hostname with a reachable hostname or IP address.
+# Use the form https://host[:port], without a subpath, query, or fragment.
+# 使用反向代理时，填写反代对外提供的 HTTPS 地址；HTTPS 默认端口 443 可以省略。
+# With a reverse proxy, use its public HTTPS address. You can omit port 443.
 public_url = "https://sync.example.com:8443"
+
+# TT-Sync 在服务器上监听的 IP 和端口，省略时使用 0.0.0.0:8443。
+# The IP address and port TT-Sync listens on. Defaults to 0.0.0.0:8443.
+#
+# 0.0.0.0 表示监听本机所有 IPv4 网卡；127.0.0.1 仅接受本机连接。
+# 0.0.0.0 listens on all local IPv4 interfaces; 127.0.0.1 accepts local connections only.
+# Docker 端口映射或反代可以使用不同的对外端口，public_url 应填写对外的地址和端口。
+# Docker port mapping or a reverse proxy may expose a different port.
+# Set public_url to the address and port that clients actually reach.
+# 此监听端口使用 HTTPS（TLS 1.3），反代回源时也需要使用 HTTPS。
+# This listener uses HTTPS (TLS 1.3). A reverse proxy must also use HTTPS to connect to it.
 listen = "0.0.0.0:8443"
 
-# Optional public endpoint SPKI pin (unpadded base64url SHA-256 of DER SPKI).
-# Takes precedence over the local certificate's pin, including when [tls] is set.
-# Use the certificate clients see at the reverse proxy / public HTTPS endpoint.
+# 对外 HTTPS 入口的公钥指纹（可选），客户端据此验证服务器身份。
+# The public HTTPS endpoint's key fingerprint (optional).
+# Clients use it to verify the server during pairing and sync.
+#
+# 通常保留注释即可，TT-Sync 会从自己的证书计算指纹。
+# You can usually leave this commented out; TT-Sync computes the pin from its certificate.
+# 如果反代或 CDN 使用了另一张证书，填写客户端实际收到的入口证书的指纹。
+# If a reverse proxy or CDN presents another certificate, use the fingerprint
+# of the certificate that clients actually receive.
+#
+# 同时配置此项和 [tls] 时，以此项作为配对指纹；[tls] 仍用于本机 HTTPS 监听。
+# When both this setting and [tls] are present, this pin takes precedence for
+# pairing. The [tls] files still supply the local HTTPS listener's certificate and key.
+# 格式为 SPKI 的 SHA-256 摘要，使用不带末尾 = 的 base64url 编码。
+# Use the SHA-256 hash of DER-encoded SPKI, encoded as base64url without trailing = padding.
+# 普通的整张证书指纹不能用于此处。计算方法见 docs/CLI.md 的 TLS 说明。
+# A whole-certificate fingerprint will not work here. See the TLS section of
+# docs/CLI.md for the command to compute the SPKI fingerprint.
+# 入口证书更换公钥后，需要更新指纹，并让已有客户端重新配对。
+# If the endpoint's public key changes, update this pin and pair existing clients again.
+#
+# 启用时去掉下一行的 # 并填写指纹。这一项要放在 [tls] 和 [ui] 之前。
+# To enable it, uncomment the next line and enter the pin. Keep it above [tls] and [ui].
 # public_spki_sha256 = "REPLACE_WITH_PUBLIC_ENDPOINT_SPKI"
 
-# Optional external PEM certificate chain (leaf first) and unencrypted private key.
-# Both paths are required. Relative paths are resolved from this config file.
-# TT-Sync only reads these files; restart after renewing them.
+# 外部证书（可选）。保持下面三项的注释时，TT-Sync 使用状态目录中的证书，首次启动时自动生成。
+# External certificates (optional). Leave the three configuration lines below commented
+# out to use the certificate in the state directory, created on first startup.
+#
+# 如需使用已有证书，请去掉 [tls]、cert_file 和 key_file 三行前的 #，并填写两个文件路径。
+# To use an existing certificate, uncomment [tls], cert_file, and key_file,
+# then set both file paths.
+# 相对路径以本配置文件所在目录为起点；Docker 部署时填写容器内的路径。
+# Relative paths start from this config file's directory. In Docker, use container paths.
+# TT-Sync 只读取这些文件。外部证书按原方式续期，更新文件后需重启服务。
+# TT-Sync only reads these files. Use your existing certificate renewal process,
+# then restart the server to load the updated files.
+# 证书和私钥请放在同步目录之外；Docker 中可将证书目录以只读方式挂载。
+# Keep the certificate and key outside the sync folder. In Docker, you can
+# mount the certificate directory as read-only.
 # [tls]
+
+# PEM 格式的证书链文件。第一张应为服务器证书，后面依次放中间证书。
+# The PEM certificate chain file: server certificate first, followed by intermediates.
 # cert_file = "/certs/fullchain.pem"
+
+# 与上述证书匹配的 PEM 私钥文件，私钥不能有密码保护。
+# The matching PEM private key file. The key must not be password-protected.
+# 启用外部证书时，这两个文件都必须存在且可读；加载失败或不匹配时服务会报错。
+# Both files must exist and be readable. TT-Sync reports an error if it cannot
+# load them or if the certificate and key do not match.
 # key_file = "/certs/privkey.pem"
 
 [ui]
+
+# TUI（全屏终端界面）的语言。可填 zh-cn（简体中文）或 en（英语），省略时使用 zh-cn。
+# Language of the full-screen terminal interface: zh-cn (Simplified Chinese)
+# or en (English). Defaults to zh-cn when omitted.
 language = "en"

@@ -40,6 +40,10 @@ Built with **Rust** 🦀, TT-Sync provides:
 
 ---
 
+## AI-assisted setup
+
+The [TT-Sync skill](./skills/tt-sync/SKILL.md) guides an AI assistant through manual TUI setup, CLI automation, or Docker deployment. Load the `skills/tt-sync` directory in a tool that supports skills, or ask your assistant to read the file directly.
+
 ## Installation
 
 ### One-Line Install
@@ -228,15 +232,7 @@ Use:
 
 ## Developer Docs
 
-The README now keeps only the shortest user path. For lower-level commands, automation, and architecture details, see:
-
-- [Docker Guide](./docs/Docker.md)
-- [CLI Reference](./docs/CLI.md)
-- [External Certificates and Reverse Proxies](./docs/Docker.md#9-external-certificates-and-reverse-proxies)
-- [Architecture](./docs/Architecture.md)
-- [Current State](./docs/CurrentState.md)
-- [Upstream Contract](./docs/UpstreamContract.md)
-- [Tech Stack](./docs/TechStack.md)
+Start with the [maintainer guide](./docs/README.md) for architecture, operating conventions, and releases. Configuration fields are documented in [config.toml.example](./config.toml.example).
 
 ---
 
