@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use ed25519_dalek::SigningKey;
 use serde::{Deserialize, Serialize};
 use ttsync_fs::layout::LayoutMode;
+use ttsync_http::tls::{SelfManagedTls, TlsProvider};
 
 /// Persistent configuration written to `config.toml`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -15,10 +16,80 @@ pub struct Config {
     pub layout: LayoutMode,
     /// Public base URL for pair URIs (e.g., https://my-vps:8443).
     pub public_url: String,
+    /// Public endpoint's SPKI pin; takes precedence over the local certificate's pin.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_spki_sha256: Option<String>,
     #[serde(default = "default_listen")]
     pub listen: String,
+    /// External PEM files. Omit to use the self-managed identity in the state directory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tls: Option<TlsConfig>,
     #[serde(default)]
     pub ui: UiConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TlsConfig {
+    pub cert_file: PathBuf,
+    pub key_file: PathBuf,
+}
+
+impl Config {
+    fn validate(&self) -> Result<(), CliError> {
+        if let Some(pin) = &self.public_spki_sha256
+            && !base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .decode(pin)
+                .is_ok_and(|bytes| bytes.len() == 32)
+        {
+            return Err(CliError::Config(
+                "public_spki_sha256 must be a SHA-256 SPKI hash encoded as unpadded base64url"
+                    .into(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Resolve relative certificate paths against the config file, independent of the service's cwd.
+    pub fn tls_paths(
+        &self,
+        config_path: &Path,
+        state_dir: &Path,
+    ) -> Result<(PathBuf, PathBuf), CliError> {
+        match &self.tls {
+            Some(files) => {
+                let dir = config_path.parent().ok_or_else(|| {
+                    CliError::Config("config path has no parent directory".into())
+                })?;
+                Ok((dir.join(&files.cert_file), dir.join(&files.key_file)))
+            }
+            None => Ok((
+                state_dir.join("tls/cert.pem"),
+                state_dir.join("tls/key.pem"),
+            )),
+        }
+    }
+
+    pub fn load_tls(
+        &self,
+        config_path: &Path,
+        state_dir: &Path,
+    ) -> Result<SelfManagedTls, CliError> {
+        match self.tls {
+            Some(_) => {
+                let (cert, key) = self.tls_paths(config_path, state_dir)?;
+                Ok(SelfManagedTls::from_pem_files(&cert, &key)?)
+            }
+            None => Ok(SelfManagedTls::load_or_create(state_dir)?),
+        }
+    }
+
+    pub fn pairing_spki_sha256(&self, tls: &impl TlsProvider) -> String {
+        self.public_spki_sha256
+            .as_deref()
+            .unwrap_or_else(|| tls.spki_sha256())
+            .to_owned()
+    }
 }
 
 fn default_listen() -> String {
@@ -101,11 +172,14 @@ pub fn identity_path(state_dir: &Path) -> PathBuf {
 pub fn load_config(config_path: &Path) -> Result<Config, CliError> {
     let text = std::fs::read_to_string(config_path)
         .map_err(|e| CliError::Config(format!("read {}: {}", config_path.display(), e)))?;
-    toml::from_str(&text)
-        .map_err(|e| CliError::Config(format!("parse {}: {}", config_path.display(), e)))
+    let config: Config = toml::from_str(&text)
+        .map_err(|e| CliError::Config(format!("parse {}: {}", config_path.display(), e)))?;
+    config.validate()?;
+    Ok(config)
 }
 
 pub fn save_config(config_path: &Path, config: &Config) -> Result<(), CliError> {
+    config.validate()?;
     let dir = config_path
         .parent()
         .ok_or_else(|| CliError::Config("config path has no parent directory".into()))?;

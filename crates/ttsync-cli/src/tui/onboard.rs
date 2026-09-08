@@ -6,7 +6,7 @@ use ratatui::widgets::ListState;
 use ttsync_fs::layout::LayoutMode;
 use ttsync_fs::layout::WorkspaceMounts;
 
-use crate::config::{Config, UiConfig, UiLanguage};
+use crate::config::{Config, TlsConfig, UiConfig, UiLanguage};
 use crate::tui::components::text_input::TextInput;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,6 +36,8 @@ pub struct State {
     pub port: TextInput,
     pub public_url: TextInput,
     pub public_url_is_auto: bool,
+    public_spki_sha256: Option<String>,
+    tls: Option<TlsConfig>,
 
     pub layout_list: ListState,
 
@@ -75,6 +77,8 @@ impl State {
             port: TextInput::new("8443"),
             public_url: TextInput::new(""),
             public_url_is_auto: true,
+            public_spki_sha256: None,
+            tls: None,
             layout_list,
             workspace_path: TextInput::new(""),
             workspace_canonical: None,
@@ -100,6 +104,8 @@ impl State {
 
         self.public_url.set(cfg.public_url.clone());
         self.public_url_is_auto = false;
+        self.public_spki_sha256 = cfg.public_spki_sha256.clone();
+        self.tls = cfg.tls.clone();
 
         let layout_idx = match cfg.layout {
             LayoutMode::TauriTavern => 0,
@@ -232,6 +238,8 @@ impl State {
             workspace_path,
             layout: self.layout_mode(),
             public_url,
+            public_spki_sha256: self.public_spki_sha256.clone(),
+            tls: self.tls.clone(),
             listen: format!("{}:{}", format_host(self.listen_ip), port),
             ui: UiConfig {
                 language: self.language,
@@ -250,5 +258,32 @@ fn format_host(ip: IpAddr) -> String {
     match ip {
         IpAddr::V4(v4) => v4.to_string(),
         IpAddr::V6(v6) => format!("[{}]", v6),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn editing_onboarding_settings_preserves_external_tls_configuration() {
+        let config: Config = toml::from_str(
+            "workspace_path = '/workspace'\n\
+             public_url = 'https://sync.example.com'\n\
+             public_spki_sha256 = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'\n\
+             [tls]\ncert_file = 'certs/fullchain.pem'\nkey_file = 'certs/key.pem'",
+        )
+        .unwrap();
+        let mut state = State::new();
+        state.prefill_from_config(&config).unwrap();
+        state.workspace_canonical = Some(config.workspace_path.clone());
+        state.port.set("9443");
+        let saved = toml::to_string_pretty(&state.build_config().unwrap()).unwrap();
+        let edited: Config = toml::from_str(&saved).unwrap();
+        assert_eq!(edited.listen, "0.0.0.0:9443");
+        assert_eq!(edited.public_spki_sha256, config.public_spki_sha256);
+        let files = edited.tls.unwrap();
+        assert_eq!(files.cert_file, Path::new("certs/fullchain.pem"));
+        assert_eq!(files.key_file, Path::new("certs/key.pem"));
     }
 }

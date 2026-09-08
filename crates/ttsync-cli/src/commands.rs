@@ -11,7 +11,7 @@ use ttsync_core::ports::PeerStore;
 use ttsync_fs::layout::{LayoutMode, WorkspaceMounts};
 use ttsync_fs::peer_store::JsonPeerStore;
 use ttsync_http::pairing_store::PairingTokenStore;
-use ttsync_http::tls::{SelfManagedTls, TlsProvider};
+use ttsync_http::tls::TlsProvider;
 
 use crate::Context;
 use crate::config::{self, CliError, Config, ConfigPathMode};
@@ -207,13 +207,15 @@ fn cmd_init(
         workspace_path,
         layout,
         public_url: public_url.to_owned(),
+        public_spki_sha256: None,
+        tls: None,
         listen: listen.to_owned(),
         ui: Default::default(),
     };
     config::save_config(&ctx.config_path, &config)?;
 
     let identity = config::load_or_create_identity(&ctx.state_dir)?;
-    let tls = SelfManagedTls::load_or_create(&ctx.state_dir)?;
+    let tls = config.load_tls(&ctx.config_path, &ctx.state_dir)?;
 
     if !ctx.quiet {
         println!();
@@ -302,8 +304,16 @@ async fn cmd_serve(ctx: &Context) -> Result<(), CliError> {
             "Extensions root",
             &mounts.extensions_root.display().to_string(),
         );
-        output::print_field(s, "TLS            ", "self-managed (SPKI pin)");
-        output::print_field(s, "SPKI SHA-256   ", &spki_sha256);
+        output::print_field(
+            s,
+            "TLS            ",
+            if config.tls.is_some() {
+                "external PEM (SPKI pin)"
+            } else {
+                "self-managed (SPKI pin)"
+            },
+        );
+        output::print_field(s, "Pairing SPKI   ", &spki_sha256);
         output::print_field(s, "State dir      ", &ctx.state_dir.display().to_string());
         output::print_field(s, "Config file    ", &ctx.config_path.display().to_string());
         println!();
@@ -335,7 +345,7 @@ fn cmd_pair_open(
 ) -> Result<(), CliError> {
     let s = &ctx.style;
     let config = config::load_config(&ctx.config_path)?;
-    let tls = SelfManagedTls::load_or_create(&ctx.state_dir)?;
+    let tls = config.load_tls(&ctx.config_path, &ctx.state_dir)?;
 
     let expires_secs = parse_duration(expires)?;
 
@@ -361,8 +371,11 @@ fn cmd_pair_open(
         expires_in_secs: expires_secs,
     };
 
-    let (session, pair_uri) =
-        create_pairing_session(&config.public_url, tls.spki_sha256(), pairing_config)?;
+    let (session, pair_uri) = create_pairing_session(
+        &config.public_url,
+        &config.pairing_spki_sha256(&tls),
+        pairing_config,
+    )?;
     PairingTokenStore::from_state_dir(ctx.state_dir.clone()).insert(&session)?;
 
     if json {
@@ -568,6 +581,17 @@ fn cmd_doctor(ctx: &Context) -> Result<(), CliError> {
                 Ok(_) => output::print_ok(s, &format!("Listen address valid: {}", config.listen)),
                 Err(e) => output::print_err(s, &format!("Listen address invalid: {e}")),
             }
+
+            match config.load_tls(&ctx.config_path, &ctx.state_dir) {
+                Ok(tls) => output::print_ok(
+                    s,
+                    &format!(
+                        "TLS certificate and key loaded (pairing SPKI: {})",
+                        config.pairing_spki_sha256(&tls)
+                    ),
+                ),
+                Err(e) => output::print_err(s, &format!("TLS: {e}")),
+            }
         }
         Err(e) => output::print_err(s, &format!("config file: {e}")),
     }
@@ -585,21 +609,6 @@ fn cmd_doctor(ctx: &Context) -> Result<(), CliError> {
             );
         }
         Err(e) => output::print_err(s, &format!("identity.json: {e}")),
-    }
-
-    // TLS
-    match SelfManagedTls::load_or_create(&ctx.state_dir) {
-        Ok(tls) => {
-            output::print_ok(
-                s,
-                &format!("TLS certificate loaded (SPKI: {})", tls.spki_sha256()),
-            );
-            match tls.server_config() {
-                Ok(_) => output::print_ok(s, "TLS server config builds successfully"),
-                Err(e) => output::print_err(s, &format!("TLS server config failed: {e}")),
-            }
-        }
-        Err(e) => output::print_err(s, &format!("TLS: {e}")),
     }
 
     // Peers
@@ -628,25 +637,26 @@ fn cmd_doctor(ctx: &Context) -> Result<(), CliError> {
 
 fn cmd_cert_show(ctx: &Context) -> Result<(), CliError> {
     let s = &ctx.style;
-    let tls = SelfManagedTls::load_or_create(&ctx.state_dir)?;
-
-    let tls_dir = ctx.state_dir.join("tls");
+    let config = config::load_config(&ctx.config_path)?;
+    let tls = config.load_tls(&ctx.config_path, &ctx.state_dir)?;
+    let (cert_path, key_path) = config.tls_paths(&ctx.config_path, &ctx.state_dir)?;
 
     println!();
     println!("  {}", s.bold("TLS Certificate"));
     println!();
-    output::print_field(s, "SPKI SHA-256", tls.spki_sha256());
+    output::print_field(s, "TLS SPKI    ", tls.spki_sha256());
+    output::print_field(s, "Pairing SPKI", &config.pairing_spki_sha256(&tls));
+    output::print_field(s, "Key file    ", &key_path.display().to_string());
+    output::print_field(s, "Cert file   ", &cert_path.display().to_string());
     output::print_field(
         s,
-        "Key file    ",
-        &tls_dir.join("key.pem").display().to_string(),
+        "Mode        ",
+        if config.tls.is_some() {
+            "external PEM"
+        } else {
+            "self-managed"
+        },
     );
-    output::print_field(
-        s,
-        "Cert file   ",
-        &tls_dir.join("cert.pem").display().to_string(),
-    );
-    output::print_field(s, "Mode        ", "self-managed");
     println!();
 
     Ok(())
@@ -654,9 +664,13 @@ fn cmd_cert_show(ctx: &Context) -> Result<(), CliError> {
 
 fn cmd_cert_rotate_leaf(ctx: &Context) -> Result<(), CliError> {
     let s = &ctx.style;
-    let tls_dir = ctx.state_dir.join("tls");
-    let key_path = tls_dir.join("key.pem");
-    let cert_path = tls_dir.join("cert.pem");
+    let config = config::load_config(&ctx.config_path)?;
+    if config.tls.is_some() {
+        return Err(CliError::Config(
+            "TLS certificate is externally managed; renew it externally and restart TT-Sync".into(),
+        ));
+    }
+    let (cert_path, key_path) = config.tls_paths(&ctx.config_path, &ctx.state_dir)?;
 
     if !key_path.exists() {
         return Err(CliError::Config(
@@ -676,7 +690,7 @@ fn cmd_cert_rotate_leaf(ctx: &Context) -> Result<(), CliError> {
 
     std::fs::write(&cert_path, cert.pem())?;
 
-    let tls = SelfManagedTls::load_or_create(&ctx.state_dir)?;
+    let tls = config.load_tls(&ctx.config_path, &ctx.state_dir)?;
 
     if !ctx.quiet {
         println!();

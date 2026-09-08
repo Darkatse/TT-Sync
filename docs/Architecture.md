@@ -186,8 +186,12 @@ Shared middleware:
 
 | Component | Responsibility |
 |-----------|---------------|
-| `SelfManagedTls` | Loads or generates long-term TLS private key + self-signed cert via `rcgen`. Computes `spki_sha256`. Configures `rustls::ServerConfig`. |
-| `TlsMode` trait | Abstraction point for future `ProvidedCert` / `BehindProxy` modes. MVP only implements `SelfManagedTls`. |
+| `SelfManagedTls` | Loads external PEM files through `from_pem_files`, or loads/generates the state directory identity through `load_or_create`. Validates the certificate/key pair, computes local `spki_sha256`, and configures `rustls::ServerConfig`. |
+| `TlsProvider` trait | Supplies the local TLS identity and server configuration to the HTTPS listener. |
+
+The CLI configuration selects optional external PEM paths and an optional `public_spki_sha256`.
+The explicit public pin takes precedence over the loaded certificate's pin in pairing and advertised status; it does not change the local listener's certificate.
+This supports TLS-terminating proxies while preserving the v2 SPKI pinning contract. File loading remains in `ttsync-http`; deployment configuration remains in the CLI.
 
 #### Client (`client` module)
 
@@ -367,8 +371,6 @@ Layout adaptation (layout mode + derived mount points) is a `ttsync-fs` concern,
 
 | Extension | Where It Plugs In |
 |-----------|------------------|
-| `provided-cert` TLS mode | `TlsMode` trait in `ttsync-http` |
-| `behind-proxy` TLS mode | `TlsMode` trait in `ttsync-http` |
 | Custom dataset overlays (include/exclude rules) | `ttsync-core::dataset` policy/catalog layer |
 | BLAKE3 content verification | `ManifestEntryV2.content_hash` field + scanner option in `ttsync-fs` |
 | TauriTavern Tauri adapter | Implements `ttsync-client::SyncObserver` → emits `lan_sync:*` Tauri events |

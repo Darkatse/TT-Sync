@@ -27,7 +27,6 @@ use crate::Context;
 use crate::config::CliError;
 use crate::config::{self, UiLanguage};
 use crate::tui::app::{App, MainMenuItem, PairingFlow, Screen};
-use ttsync_http::tls::SelfManagedTls;
 
 struct TerminalGuard;
 
@@ -556,7 +555,7 @@ fn handle_key_onboard(app: &mut App, ctx: &Context, code: KeyCode) -> Result<(),
                     let config = state.build_config().map_err(CliError::Config)?;
                     config::save_config(&ctx.config_path, &config)?;
                     let _identity = config::load_or_create_identity(&ctx.state_dir)?;
-                    let _tls = SelfManagedTls::load_or_create(&ctx.state_dir)?;
+                    let _tls = config.load_tls(&ctx.config_path, &ctx.state_dir)?;
 
                     app.language = config.ui.language;
                     state.next_step();

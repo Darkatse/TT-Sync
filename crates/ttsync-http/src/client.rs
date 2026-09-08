@@ -962,7 +962,15 @@ mod integration_tests {
     #[tokio::test]
     async fn sync_client_completes_pair_session_pull_push_and_commit() {
         let state_dir = unique_temp_dir();
-        let tls = SelfManagedTls::load_or_create(&state_dir).expect("TLS identity");
+        std::fs::create_dir_all(&state_dir).expect("create test directory");
+        let external = rcgen::generate_simple_self_signed(["external.example.com".to_owned()])
+            .expect("external certificate");
+        let cert_path = state_dir.join("fullchain.pem");
+        let key_path = state_dir.join("private.pem");
+        std::fs::write(&cert_path, external.cert.pem()).expect("write certificate");
+        std::fs::write(&key_path, external.key_pair.serialize_pem()).expect("write key");
+        let tls =
+            SelfManagedTls::from_pem_files(&cert_path, &key_path).expect("external TLS identity");
         let spki_sha256 = tls.spki_sha256().to_owned();
         let pairing_store = PairingTokenStore::from_state_dir(state_dir.clone());
 
@@ -989,6 +997,11 @@ mod integration_tests {
         .await
         .expect("spawn server");
         let base_url = format!("https://127.0.0.1:{}", handle.addr.port());
+
+        let wrong_pin_client =
+            SyncClient::new(base_url.clone(), Some(URL_SAFE_NO_PAD.encode([0u8; 32])))
+                .expect("wrong-pin client");
+        assert!(wrong_pin_client.status().await.is_err());
 
         let (pairing_session, _) = create_pairing_session(
             &base_url,

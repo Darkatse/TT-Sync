@@ -3,7 +3,6 @@ use crate::config::{self, UiLanguage};
 use crate::tui::i18n::tr;
 
 use ttsync_fs::layout::WorkspaceMounts;
-use ttsync_http::tls::{SelfManagedTls, TlsProvider};
 
 #[derive(Debug, Clone)]
 pub struct CheckResult {
@@ -132,11 +131,15 @@ fn check_identity(ctx: &Context, lang: UiLanguage) -> CheckResult {
 
 fn check_tls(ctx: &Context, lang: UiLanguage) -> CheckResult {
     let label = tr(lang, "TLS 证书", "TLS cert");
-    match SelfManagedTls::load_or_create(&ctx.state_dir) {
-        Ok(tls) => CheckResult {
+    let result = config::load_config(&ctx.config_path).and_then(|config| {
+        let tls = config.load_tls(&ctx.config_path, &ctx.state_dir)?;
+        Ok(config.pairing_spki_sha256(&tls))
+    });
+    match result {
+        Ok(spki) => CheckResult {
             label,
             status: CheckStatus::Ok,
-            detail: format!("spki: {}", tls.spki_sha256()),
+            detail: format!("pairing spki: {spki}"),
         },
         Err(e) => CheckResult {
             label,

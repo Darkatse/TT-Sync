@@ -33,7 +33,7 @@ Ever found yourself:
 **TT-Sync** is a standalone remote sync server for exactly that problem: it takes the sync endpoint out of the LAN and onto a VPS, NAS, or home server without giving up control or security.
 
 Built with **Rust** 🦀, TT-Sync provides:
-- **End-to-end transport trust**: TLS 1.3 with SPKI pinning, no public CA required
+- **Transport encryption**: TLS 1.3 with SPKI pinning, supporting self-signed and external certificates without requiring a public CA
 - **Single-binary deployment**: suitable for VPS, NAS, containers, and home servers
 - **Ed25519 device identity**: every paired device is cryptographically verified
 - **Bidirectional compatibility**: works with both TauriTavern and vanilla SillyTavern
@@ -211,7 +211,7 @@ Use:
 ```
 ┌──────────────────────────────────────────────────────────┐
 │  Layer 1: Transport Security                             │
-│  TLS 1.3 (self-signed) + SPKI pinning                    │
+│  TLS 1.3 + SPKI pinning                                 │
 │  → The client pins the server public key during pairing  │
 ├──────────────────────────────────────────────────────────┤
 │  Layer 2: Device Identity                                │
@@ -232,6 +232,7 @@ The README now keeps only the shortest user path. For lower-level commands, auto
 
 - [Docker Guide](./docs/Docker.md)
 - [CLI Reference](./docs/CLI.md)
+- [External Certificates and Reverse Proxies](./docs/Docker.md#9-external-certificates-and-reverse-proxies)
 - [Architecture](./docs/Architecture.md)
 - [Current State](./docs/CurrentState.md)
 - [Upstream Contract](./docs/UpstreamContract.md)

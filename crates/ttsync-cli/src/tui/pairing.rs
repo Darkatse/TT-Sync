@@ -8,8 +8,6 @@ use ttsync_core::pairing::{PairingConfig, create_pairing_session};
 use ttsync_core::ports::PeerStore;
 use ttsync_fs::peer_store::JsonPeerStore;
 use ttsync_http::pairing_store::PairingTokenStore;
-use ttsync_http::tls::SelfManagedTls;
-use ttsync_http::tls::TlsProvider;
 
 use crate::Context;
 use crate::config;
@@ -85,7 +83,7 @@ impl State {
 
     pub fn refresh_token(&mut self, ctx: &Context) -> Result<(), config::CliError> {
         let cfg = config::load_config(&ctx.config_path)?;
-        let tls = SelfManagedTls::load_or_create(&ctx.state_dir)?;
+        let tls = cfg.load_tls(&ctx.config_path, &ctx.state_dir)?;
 
         let permissions = PermissionPreset::ReadWrite.permissions();
         let pairing_config = PairingConfig {
@@ -93,8 +91,11 @@ impl State {
             expires_in_secs: 10 * 60,
         };
 
-        let (session, pair_uri) =
-            create_pairing_session(&cfg.public_url, tls.spki_sha256(), pairing_config)?;
+        let (session, pair_uri) = create_pairing_session(
+            &cfg.public_url,
+            &cfg.pairing_spki_sha256(&tls),
+            pairing_config,
+        )?;
 
         let store = PairingTokenStore::from_state_dir(ctx.state_dir.clone());
 

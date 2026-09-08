@@ -24,7 +24,7 @@ Current behavior is split into two locations:
   - By default, stored next to the `tt-sync` executable.
   - CLI subcommands may override it with `--config-file <path>`.
   - TUI entrypoints ignore `--config-file` and continue using the default path.
-  - Contains workspace path, layout mode, listen address, public URL, and UI language.
+  - Contains workspace path, layout mode, listen address, public URL, UI language, and optional TLS settings.
 - state directory
   - Defaults to the platform-local data directory plus `tt-sync`.
   - Override with global `--state-dir <path>` or `TT_SYNC_STATE_DIR`.
@@ -33,6 +33,50 @@ Current behavior is split into two locations:
 That split matters in packaging and service management: moving only the state directory does **not** move the default config path unless you also pass `--config-file`.
 
 For the recommended container layout built around `--config-file`, see [Docker Guide](./Docker.md).
+
+## TLS Certificates And Public Pins
+
+With no TLS settings, TT-Sync uses its existing self-managed certificate in the state directory.
+To serve with external PEM files, add this table to `config.toml`:
+
+```toml
+[tls]
+cert_file = "/certs/fullchain.pem"
+key_file = "/certs/privkey.pem"
+```
+
+Both paths are required. Relative paths resolve from the config file's directory.
+The certificate file contains the leaf first, followed by any intermediates; the key must be unencrypted.
+TT-Sync validates the certificate and key, reads them without modifying them, and fails if they cannot be loaded or do not match.
+Renew the files externally and restart the service to load the update.
+Restart the running server after changing TLS configuration as well; pairing commands read the current config file on each invocation.
+
+When a reverse proxy terminates public TLS, configure the public endpoint's SPKI pin at the **top level**, before any TOML table:
+
+```toml
+public_url = "https://sync.example.com"
+public_spki_sha256 = "REPLACE_WITH_PUBLIC_ENDPOINT_SPKI"
+```
+
+**An explicit `public_spki_sha256` always wins over the local certificate's computed pin**, including when `[tls]` is also configured.
+Without it, pairing uses the local certificate's pin. The override only selects the public pin; the configured certificate and key must still be valid for the local HTTPS listener.
+Pair URIs, CLI/TUI pairing, server status, and startup output all use this same public pin.
+`cert show` displays both the local TLS pin and the effective pairing pin. TUI onboarding preserves these settings when editing other fields.
+
+The format is unpadded base64url of `SHA256(DER SubjectPublicKeyInfo)`, not a whole-certificate fingerprint or colon-separated hex.
+For a public endpoint certificate you control, compute it from its PEM file:
+
+```bash
+set -o pipefail
+openssl x509 -in fullchain.pem -pubkey -noout |
+  openssl pkey -pubin -outform DER |
+  openssl dgst -sha256 -binary |
+  openssl base64 -A |
+  tr '+/' '-_' | tr -d '='
+```
+
+The v2 pair URI and client pinning contract are unchanged. Renewing a certificate with the same public key preserves existing pairings; replacing the key requires updating client pins, for example by pairing again.
+See [reverse proxy deployment](./Docker.md#9-external-certificates-and-reverse-proxies) for the HTTPS upstream and Cloudflare boundary.
 
 ## Global Flags
 
@@ -156,7 +200,7 @@ Checks include:
 
 ### `cert show`
 
-Show the TLS certificate file locations and the server SPKI fingerprint.
+Show the selected TLS certificate file locations, the local certificate's SPKI fingerprint, and the effective public pairing fingerprint.
 
 ```bash
 tt-sync cert show
@@ -170,7 +214,7 @@ Re-sign the leaf certificate while preserving the same private key and SPKI pin.
 tt-sync cert rotate-leaf
 ```
 
-Paired clients remain valid because the SPKI hash stays unchanged.
+Paired clients remain valid because the SPKI hash stays unchanged. This command only manages the built-in self-signed certificate; it rejects `[tls]` configurations. Renew external certificates through their issuer and restart TT-Sync instead.
 
 ### `background-serve`
 

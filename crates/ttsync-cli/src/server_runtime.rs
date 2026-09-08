@@ -8,7 +8,7 @@ use ttsync_fs::manifest_store::FsManifestStore;
 use ttsync_fs::peer_store::JsonPeerStore;
 use ttsync_http::pairing_store::PairingTokenStore;
 use ttsync_http::server::{ServerHandle, ServerState, default_status_response, spawn_server};
-use ttsync_http::tls::{SelfManagedTls, TlsProvider};
+use ttsync_http::tls::TlsProvider;
 
 use crate::Context;
 use crate::config;
@@ -32,8 +32,8 @@ impl RunningServer {
 pub async fn start_server(ctx: &Context) -> Result<RunningServer, CliError> {
     let config = config::load_config(&ctx.config_path)?;
     let identity = config::load_or_create_identity(&ctx.state_dir)?;
-    let tls = SelfManagedTls::load_or_create(&ctx.state_dir)?;
-    let spki_sha256 = tls.spki_sha256().to_owned();
+    let tls = config.load_tls(&ctx.config_path, &ctx.state_dir)?;
+    let spki_sha256 = config.pairing_spki_sha256(&tls);
 
     let mounts = WorkspaceMounts::derive(config.layout, &config.workspace_path)?;
 

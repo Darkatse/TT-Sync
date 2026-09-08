@@ -50,6 +50,8 @@ This document is a snapshot of what is **implemented** and what is **still pendi
   - Uses `<state-dir>/tls/key.pem` + `<state-dir>/tls/cert.pem` (created if missing).
   - Computes `spki_sha256` (base64url(SHA256(SPKI DER))).
   - Builds a `rustls::ServerConfig` (TLS 1.3, ALPN `h2` + `http/1.1`).
+- `SelfManagedTls::from_pem_files(cert_path, key_path)` reads an external leaf-first chain and private key, validates their match, and never writes either file.
+- Optional CLI `[tls]` paths select external files; relative paths resolve from the config file. Optional `public_spki_sha256` takes precedence over the certificate pin for CLI/TUI pairing, server status, and startup output. External certificates are renewed outside TT-Sync and loaded after restart.
 
 #### Server
 
@@ -118,8 +120,8 @@ This document is a snapshot of what is **implemented** and what is **still pendi
 | `tt-sync peers list` | ✅ | Reads `JsonPeerStore`, displays formatted table (`comfy-table`). Supports `--json`. |
 | `tt-sync peers revoke` | ✅ | Matches by device ID, prefix, or name (case-insensitive). |
 | `tt-sync doctor` | ✅ | Validates state dir, the selected config path, mount derivation, identity, TLS cert, peers.json. Styled ✓/!/✗ indicators. |
-| `tt-sync cert show` | ✅ | Displays SPKI SHA-256 fingerprint, file paths, mode. |
-| `tt-sync cert rotate-leaf` | ✅ | Re-signs cert with existing key (via `rcgen`), confirms SPKI pin unchanged. |
+| `tt-sync cert show` | ✅ | Displays local TLS and effective pairing SPKI fingerprints, selected file paths, and certificate source. |
+| `tt-sync cert rotate-leaf` | ✅ | Re-signs the self-managed cert with its existing key; rejects externally managed certificates. |
 
 #### Output Modes
 

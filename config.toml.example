@@ -7,5 +7,17 @@ layout = "tauri-tavern"
 public_url = "https://sync.example.com:8443"
 listen = "0.0.0.0:8443"
 
+# Optional public endpoint SPKI pin (unpadded base64url SHA-256 of DER SPKI).
+# Takes precedence over the local certificate's pin, including when [tls] is set.
+# Use the certificate clients see at the reverse proxy / public HTTPS endpoint.
+# public_spki_sha256 = "REPLACE_WITH_PUBLIC_ENDPOINT_SPKI"
+
+# Optional external PEM certificate chain (leaf first) and unencrypted private key.
+# Both paths are required. Relative paths are resolved from this config file.
+# TT-Sync only reads these files; restart after renewing them.
+# [tls]
+# cert_file = "/certs/fullchain.pem"
+# key_file = "/certs/privkey.pem"
+
 [ui]
 language = "en"

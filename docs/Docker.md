@@ -251,16 +251,30 @@ services:
 
 Once you do that, make sure both the state path and workspace path are writable by that UID/GID.
 
-## 9. Reverse Proxy Boundary
+## 9. External Certificates And Reverse Proxies
 
-Today TT-Sync self-terminates TLS and clients pin the server SPKI during pairing.
+TT-Sync can read external PEM files through `[tls].cert_file` and `[tls].key_file`.
+Mount the certificate directory read-only, outside the synced workspace, and use the paths inside the container:
 
-That means the safe default remains:
+```yaml
+services:
+  tt-sync:
+    volumes:
+      - /srv/sync-certs:/certs:ro
+```
 
-- expose TT-Sync's HTTPS port directly
-- set `public_url` to the actual TT-Sync HTTPS endpoint
+Add that mount alongside the existing state and workspace mounts. If the certificate files are symlinks, their targets must also be accessible inside the container.
+See [TLS configuration](./CLI.md#tls-certificates-and-public-pins) for the config fields and fingerprint command. Restart TT-Sync after renewing external files.
 
-Do not make reverse-proxy TLS offload the default story yet. A different certificate identity breaks the current trust model.
+For Nginx/Caddy TLS termination, set `public_url` to the public HTTPS origin and `public_spki_sha256` to the public endpoint's certificate SPKI.
+The explicit fingerprint takes precedence even when TT-Sync has external certificate files configured.
+TT-Sync's upstream listener continues to use HTTPS with TLS 1.3. Configure the proxy to verify that upstream certificate, using the TT-Sync certificate as a trust anchor for a self-signed origin.
+Keep the `/v2/...` routes unchanged; the client expects an HTTPS origin without a path prefix.
+TLS terminates at the reverse proxy, so that proxy is trusted with the sync traffic.
+
+With Cloudflare proxying enabled, clients see the **Cloudflare edge certificate**, not the Nginx or origin certificate.
+Cloudflare-managed edge keys can rotate and break a fixed pin. A controlled certificate/key lifecycle is necessary for lasting pin continuity; supplying an origin fingerprint does not solve this.
+See [Cloudflare's certificate pinning guidance](https://developers.cloudflare.com/ssl/reference/certificate-pinning/).
 
 ## 10. Files To Touch For Docker Users
 
