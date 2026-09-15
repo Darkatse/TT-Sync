@@ -98,6 +98,12 @@ pub(super) const DATASETS: &[DatasetDefinition] = &[
             "default-user/image-metadata.json",
         ]
     ),
+    public_dataset!(
+        "settings.appearance",
+        files: ["default-user/settings/appearance.json", "default-user/settings/dynamic-theme.json"]
+    ),
+    public_dataset!("settings.presets", files: ["default-user/settings/presets.json"]),
+    public_dataset!("settings.layout", files: ["default-user/settings/layout.json"]),
     public_dataset!("secrets.api_keys", files: ["default-user/secrets.json"]),
     public_dataset!("chat.character.history", dirs: ["default-user/chats"]),
     public_dataset!("chat.group.metadata", dirs: ["default-user/groups"]),

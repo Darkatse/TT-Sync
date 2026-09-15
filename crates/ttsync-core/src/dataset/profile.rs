@@ -11,6 +11,9 @@ pub const AGENT_RUN_HISTORY_FULL_PROFILE_ID: &str = "agent.run_history.full";
 
 const TAURI_TAVERN_DEFAULT_DATASETS: &[&str] = &[
     "settings.core",
+    "settings.appearance",
+    "settings.presets",
+    "settings.layout",
     "chat.character.history",
     "chat.group.metadata",
     "chat.group.history",

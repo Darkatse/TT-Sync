@@ -57,6 +57,49 @@ mod tests {
     }
 
     #[test]
+    fn settings_scopes_are_independent_and_included_by_default() {
+        let scopes = [
+            (
+                "settings.core",
+                vec![
+                    "settings.json",
+                    "tauritavern-settings.json",
+                    "image-metadata.json",
+                ],
+            ),
+            (
+                "settings.appearance",
+                vec!["settings/appearance.json", "settings/dynamic-theme.json"],
+            ),
+            ("settings.presets", vec!["settings/presets.json"]),
+            ("settings.layout", vec!["settings/layout.json"]),
+        ];
+        let default = ResolvedDatasetPolicy::tauri_tavern_default();
+        let full = ResolvedDatasetPolicy::from_selection(&tauri_tavern_full_selection()).unwrap();
+        for (selected, _) in &scopes {
+            let policy = ResolvedDatasetPolicy::from_selection(&DatasetSelection::new(
+                DATASET_POLICY_VERSION,
+                vec![(*selected).to_owned()],
+            ))
+            .unwrap();
+            for (owner, paths) in &scopes {
+                for path in paths {
+                    let path = format!("default-user/{path}");
+                    assert_eq!(
+                        policy.contains_path(&path),
+                        selected == owner,
+                        "{selected}: {path}"
+                    );
+                    assert!(default.contains_path(&path));
+                    assert!(full.contains_path(&path));
+                }
+            }
+            assert!(!policy.contains_path("default-user/themes/My theme.json"));
+            assert!(!policy.contains_path("default-user/OpenAI Settings/My preset.json"));
+        }
+    }
+
+    #[test]
     fn public_catalog_hides_compatibility_only_datasets() {
         let public_ids = supported_dataset_ids();
 

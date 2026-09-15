@@ -27,6 +27,17 @@ The initiator chooses the direction, `DatasetSelection`, `SyncMode`, and `Overwr
 
 Wire paths use a shared namespace such as `default-user/...` and `extensions/third-party/...`. [Layout mapping](../crates/ttsync-fs/src/layout.rs) translates these paths to local directories; platform paths stay outside the protocol.
 
+TauriTavern stores appearance, active presets/prompts, and layout separately from core settings:
+
+| Dataset | Files under `default-user/` |
+|---|---|
+| `settings.core` | `settings.json`, `tauritavern-settings.json`, `image-metadata.json` |
+| `settings.appearance` | `settings/appearance.json`, `settings/dynamic-theme.json` |
+| `settings.presets` | `settings/presets.json` |
+| `settings.layout` | `settings/layout.json` |
+
+All settings sections are included in both `tauritavern.default` and `tauritavern.full`. Named theme and preset libraries retain their existing datasets. TauriTavern owns settings migration and JSON field partitioning; TT-Sync transfers these files using the ordinary dataset policy. Both applications must support the partitioned settings format and use TT-Sync 2.5 or later.
+
 ## Transfer flow
 
 The [client engine](../crates/ttsync-client/src/engine.rs) follows this sequence:
