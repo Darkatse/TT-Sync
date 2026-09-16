@@ -109,7 +109,11 @@ pub(super) const DATASETS: &[DatasetDefinition] = &[
     public_dataset!("chat.group.metadata", dirs: ["default-user/groups"]),
     public_dataset!("chat.group.history", dirs: ["default-user/group chats"]),
     public_dataset!("character.cards", dirs: ["default-user/characters"]),
-    public_dataset!("character.avatars", dirs: ["default-user/User Avatars"]),
+    public_dataset!(
+        "character.avatars",
+        dirs: ["default-user/User Avatars"],
+        files: ["default-user/settings/persona-state.json"]
+    ),
     public_dataset!("world.info", dirs: ["default-user/worlds"]),
     public_dataset!("preset.openai", dirs: ["default-user/OpenAI Settings"]),
     public_dataset!("preset.novelai", dirs: ["default-user/NovelAI Settings"]),
