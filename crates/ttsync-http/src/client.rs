@@ -392,6 +392,29 @@ impl SyncClient {
         Ok(())
     }
 
+    pub async fn abort(
+        &self,
+        session_token: &SessionToken,
+        plan_id: &PlanId,
+    ) -> Result<(), SyncError> {
+        let url = endpoint_url(&self.base_url, &format!("/v2/plans/{}", plan_id.0))?;
+        let response = self
+            .http
+            .delete(url)
+            .header(
+                reqwest::header::AUTHORIZATION,
+                bearer_auth_value(session_token),
+            )
+            .send()
+            .await
+            .map_err(|e| SyncError::Internal(e.to_string()))?;
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(());
+        }
+        ensure_success(response, "TT-Sync plan release failed").await?;
+        Ok(())
+    }
+
     pub async fn commit(
         &self,
         session_token: &SessionToken,

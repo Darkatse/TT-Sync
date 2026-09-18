@@ -45,6 +45,14 @@ The v2 contract requires explicit dataset selection and a matching policy versio
 
 An operation can fail after earlier files have changed. [ClientWorkspace](../crates/ttsync-client/src/workspace.rs) reports write/delete side effects, and the engine carries local changes in its success and failure results. Hosts use that information when refreshing application state.
 
+## Database scope
+
+`extensions.databases` is opt-in and included in Full. Each namespace is retained or replaced as a whole. Exact takes the source; PreferNewer compares maximum file modification times and retains only a strictly newer target. Incremental retains target-only namespaces; Mirror removes them. [Database path rules](../crates/ttsync-core/src/database.rs) define the file scope.
+
+Prepared storage owns exclusive database access from scanning through commit. Native hosts handle flush/close and preserve pre-maintenance file times. The standalone filesystem server requires exclusive ownership of its data directory; it does not coordinate with external database writers.
+
+[DatabaseTransfer](../crates/ttsync-fs/src/databases.rs) stages and publishes complete namespaces. HTTP plans retain prepared storage until completion, cancellation, or expiry. Publication is per namespace, not a transaction across the whole sync.
+
 ## Trust and authorization
 
 Pairing registers a device's Ed25519 public key with the permissions carried by a one-time token. The [pair URI](../crates/ttsync-contract/src/pair.rs) supplies the HTTPS origin, token, expiry, and SPKI pin.

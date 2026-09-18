@@ -1,5 +1,6 @@
 pub mod bundle;
 pub mod crypto;
+pub mod database;
 pub mod dataset;
 pub mod error;
 pub mod pairing;

@@ -23,6 +23,7 @@ use crate::error::SyncError;
 ///   and treats a source `modified_ms` of 0 as oldest, never replacing a
 ///   timestamped target copy.
 ///
+/// Database namespaces compare their maximum file mtime and transfer as complete groups.
 /// Returns a plan describing which files to transfer and (if mirror mode) which to delete.
 fn compute_plan(
     plan_id: PlanId,
@@ -44,23 +45,40 @@ fn compute_plan(
         .map(|e| (e.path.as_str(), (e.size_bytes, e.modified_ms)))
         .collect();
 
+    // A newer target database keeps every file, including target-only sidecars in Mirror.
+    let source_databases = database_mtimes(source);
+    let preserved_databases: HashSet<_> = database_mtimes(target)
+        .into_iter()
+        .filter(|(directory, modified)| {
+            overwrite == OverwritePolicy::PreferNewer
+                && source_databases
+                    .get(directory)
+                    .is_some_and(|source_modified| modified > source_modified)
+        })
+        .map(|(directory, _)| directory)
+        .collect();
     let mut transfer = Vec::new();
     let mut bytes_total = 0u64;
 
     for entry in &source.entries {
-        let transfer_needed = match target_index.get(entry.path.as_str()) {
-            Some(&(size, mtime)) => {
-                let changed = size != entry.size_bytes || mtime != entry.modified_ms;
-                match overwrite {
-                    OverwritePolicy::Exact => changed,
-                    // Preserve a strictly newer target copy; an mtime tie with
-                    // differing sizes still transfers, since the direction
-                    // cannot be inferred.
-                    OverwritePolicy::PreferNewer => changed && mtime <= entry.modified_ms,
+        let transfer_needed =
+            if let Some(directory) = crate::database::namespace_directory(entry.path.as_str()) {
+                !preserved_databases.contains(directory)
+            } else {
+                match target_index.get(entry.path.as_str()) {
+                    Some(&(size, mtime)) => {
+                        let changed = size != entry.size_bytes || mtime != entry.modified_ms;
+                        match overwrite {
+                            OverwritePolicy::Exact => changed,
+                            // Preserve a strictly newer target copy; an mtime tie with
+                            // differing sizes still transfers, since the direction
+                            // cannot be inferred.
+                            OverwritePolicy::PreferNewer => changed && mtime <= entry.modified_ms,
+                        }
+                    }
+                    None => true,
                 }
-            }
-            None => true,
-        };
+            };
 
         if transfer_needed {
             bytes_total += entry.size_bytes;
@@ -73,6 +91,10 @@ fn compute_plan(
             .entries
             .iter()
             .filter(|e| !source_index.contains_key(e.path.as_str()))
+            .filter(|e| {
+                crate::database::namespace_directory(e.path.as_str())
+                    .is_none_or(|directory| !preserved_databases.contains(directory))
+            })
             .map(|e| e.path.clone())
             .collect()
     } else {
@@ -116,6 +138,17 @@ pub fn compute_plan_for_policy(
     }
     validate_plan_scope(&plan, policy)?;
     Ok(plan)
+}
+
+fn database_mtimes(manifest: &ManifestV2) -> HashMap<&str, u64> {
+    let mut times = HashMap::new();
+    for entry in &manifest.entries {
+        if let Some(directory) = crate::database::namespace_directory(entry.path.as_str()) {
+            let modified = times.entry(directory).or_insert(0);
+            *modified = (*modified).max(entry.modified_ms);
+        }
+    }
+    times
 }
 
 pub fn validate_plan_scope(

@@ -15,6 +15,7 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 filetime = { workspace = true }
+uuid = { workspace = true }
 
 [features]
 default = []

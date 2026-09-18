@@ -17,15 +17,21 @@ pub async fn write_file_atomic(
     data: &mut (dyn AsyncRead + Send + Unpin),
     modified_ms: u64,
 ) -> Result<(), SyncError> {
-    let full_path = resolve_to_local(mounts, sync_path);
+    write_file_to_path(&resolve_to_local(mounts, sync_path), data, modified_ms).await
+}
 
+pub(crate) async fn write_file_to_path(
+    full_path: &Path,
+    data: &mut (dyn AsyncRead + Send + Unpin),
+    modified_ms: u64,
+) -> Result<(), SyncError> {
     if let Some(parent) = full_path.parent() {
         tokio::fs::create_dir_all(parent)
             .await
             .map_err(|e| SyncError::Io(e.to_string()))?;
     }
 
-    let tmp_path = download_tmp_path(&full_path);
+    let tmp_path = download_tmp_path(full_path);
     let mut file = tokio::fs::OpenOptions::new()
         .create(true)
         .write(true)
@@ -41,8 +47,8 @@ pub async fn write_file_atomic(
         .map_err(|e| SyncError::Io(e.to_string()))?;
     drop(file);
 
-    rename_with_retry(&tmp_path, &full_path).await?;
-    set_file_modified_ms(&full_path, modified_ms)?;
+    rename_with_retry(&tmp_path, full_path).await?;
+    set_file_modified_ms(full_path, modified_ms)?;
 
     Ok(())
 }

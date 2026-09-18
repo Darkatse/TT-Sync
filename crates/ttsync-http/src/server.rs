@@ -43,7 +43,7 @@ pub struct ServerState<M, P> {
     pub peer_store: Arc<P>,
     pub session_manager: Arc<SessionManager>,
     pub status: StatusResponse,
-    plans: PlanStore,
+    plans: PlanStore<M>,
 }
 
 impl<M, P> ServerState<M, P> {
@@ -178,6 +178,10 @@ where
     P: PeerStore + 'static,
 {
     Router::new()
+        .route(
+            "/v2/plans/{plan_id}",
+            axum::routing::delete(handlers::abort::<M, P>),
+        )
         .route("/v2/status", get(handlers::status::<M, P>))
         .route("/v2/session/open", post(handlers::session_open::<M, P>))
         .route(

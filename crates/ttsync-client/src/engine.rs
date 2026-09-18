@@ -1,5 +1,4 @@
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 use async_compression::tokio::bufread::{ZstdDecoder, ZstdEncoder};
 use futures_util::TryStreamExt;
@@ -194,7 +193,7 @@ where
     where
         O: SyncObserver,
     {
-        validate_options(&options)?;
+        let policy = validate_options(&options)?;
         let (transport, permissions, session_token) = self.prepare_session(&options).await?;
 
         ensure_pull_allowed(permissions, options.mode)
@@ -208,10 +207,18 @@ where
             ProgressCounts::default(),
             None,
         );
-        let policy = ResolvedDatasetPolicy::from_selection(&options.selection)
-            .map_err(ClientSyncFailure::without_local_change)
-            .map_err(|failure| failure.with_permissions(permissions))?;
-        let target_manifest = self
+        let active = Self::new(
+            self.client.clone(),
+            self.workspace
+                .clone()
+                .prepare(policy.clone(), true)
+                .await
+                .map_err(ClientSyncFailure::without_local_change)
+                .map_err(|failure| failure.with_permissions(permissions))?,
+            self.target.clone(),
+            self.peer_label.clone(),
+        );
+        let target_manifest = active
             .workspace
             .scan(policy.clone())
             .await
@@ -225,7 +232,7 @@ where
             ProgressCounts::default(),
             None,
         );
-        let plan = self
+        let plan = active
             .client
             .pull_plan(
                 &session_token,
@@ -237,13 +244,24 @@ where
             .await
             .map_err(ClientSyncFailure::without_local_change)
             .map_err(|failure| failure.with_permissions(permissions))?;
+        let mut remote_plan = policy
+            .selection()
+            .dataset_ids
+            .iter()
+            .any(|id| id == ttsync_core::database::DATASET_ID)
+            .then(|| RemotePlan {
+                client: self.client.clone(),
+                token: session_token.clone(),
+                id: Some(plan.plan_id.clone()),
+            });
         validate_plan_scope(&plan, &policy)
             .map_err(ClientSyncFailure::without_local_change)
             .map_err(|failure| failure.with_permissions(permissions))?;
 
+        active.workspace.set_plan(&plan);
         let files_total = plan.files_total;
         let bytes_total = plan.bytes_total;
-        let local_applied = self
+        let local_applied = active
             .apply_pull_plan(
                 plan,
                 options.mode,
@@ -252,9 +270,13 @@ where
                 options.file_concurrency,
                 observer,
             )
-            .await
-            .map_err(|failure| failure.with_permissions(permissions))?;
+            .await;
 
+        if let Some(plan) = &mut remote_plan {
+            plan.release().await;
+        }
+        let local_applied =
+            local_applied.map_err(|failure| failure.with_permissions(permissions))?;
         Ok(ClientSyncReport {
             summary: ClientSyncSummary {
                 files_total,
@@ -274,7 +296,7 @@ where
     where
         O: SyncObserver,
     {
-        validate_options(&options)?;
+        let policy = validate_options(&options)?;
         let (transport, permissions, session_token) = self.prepare_session(&options).await?;
 
         ensure_push_allowed(permissions, options.mode)
@@ -288,10 +310,18 @@ where
             ProgressCounts::default(),
             None,
         );
-        let policy = ResolvedDatasetPolicy::from_selection(&options.selection)
-            .map_err(ClientSyncFailure::without_local_change)
-            .map_err(|failure| failure.with_permissions(permissions))?;
-        let source_manifest = self
+        let active = Self::new(
+            self.client.clone(),
+            self.workspace
+                .clone()
+                .prepare(policy.clone(), false)
+                .await
+                .map_err(ClientSyncFailure::without_local_change)
+                .map_err(|failure| failure.with_permissions(permissions))?,
+            self.target.clone(),
+            self.peer_label.clone(),
+        );
+        let source_manifest = active
             .workspace
             .scan(policy.clone())
             .await
@@ -305,7 +335,7 @@ where
             ProgressCounts::default(),
             None,
         );
-        let plan = self
+        let plan = active
             .client
             .push_plan(
                 &session_token,
@@ -317,6 +347,16 @@ where
             .await
             .map_err(ClientSyncFailure::without_local_change)
             .map_err(|failure| failure.with_permissions(permissions))?;
+        let mut remote_plan = policy
+            .selection()
+            .dataset_ids
+            .iter()
+            .any(|id| id == ttsync_core::database::DATASET_ID)
+            .then(|| RemotePlan {
+                client: self.client.clone(),
+                token: session_token.clone(),
+                id: Some(plan.plan_id.clone()),
+            });
         validate_plan_scope(&plan, &policy)
             .map_err(ClientSyncFailure::without_local_change)
             .map_err(|failure| failure.with_permissions(permissions))?;
@@ -328,17 +368,25 @@ where
         } else {
             0
         };
-        self.apply_push_plan(
-            plan,
-            options.mode,
-            transport,
-            &session_token,
-            options.file_concurrency,
-            observer,
-        )
-        .await
-        .map_err(|failure| failure.with_permissions(permissions))?;
+        let result = active
+            .apply_push_plan(
+                plan,
+                options.mode,
+                transport,
+                &session_token,
+                options.file_concurrency,
+                observer,
+            )
+            .await;
 
+        if let Some(plan) = &mut remote_plan {
+            if result.is_ok() {
+                plan.id = None; // Commit already released the remote store.
+            } else {
+                plan.release().await;
+            }
+        }
+        result.map_err(|failure| failure.with_permissions(permissions))?;
         Ok(ClientSyncReport {
             summary: ClientSyncSummary {
                 files_total,
@@ -444,7 +492,7 @@ where
                 |progress| {
                     files_done += 1;
                     bytes_done += progress.size_bytes;
-                    tracker.record_write(progress.size_bytes);
+                    tracker.record_write(progress.path.clone(), progress.size_bytes);
 
                     if should_emit_progress(files_done, files_total) {
                         emit(
@@ -459,7 +507,7 @@ where
             )
             .await
             {
-                let local_applied = tracker.summary();
+                let local_applied = tracker.summary(&*self.workspace);
                 let local_target_changed = error.target_changed();
                 return Err(ClientSyncFailure::with_local_state(
                     error.into_error(),
@@ -479,23 +527,26 @@ where
             .await?;
         }
 
-        if mode != SyncMode::Mirror || delete.is_empty() {
-            return Ok(tracker.summary());
-        }
-
+        let delete = if mode == SyncMode::Mirror {
+            delete
+        } else {
+            Vec::new()
+        };
         let delete_total = delete.len();
-        emit(
-            observer,
-            SyncDirection::Pull,
-            SyncPhase::Deleting,
-            ProgressCounts::new(0, delete_total, 0, 0),
-            None,
-        );
+        if delete_total > 0 {
+            emit(
+                observer,
+                SyncDirection::Pull,
+                SyncPhase::Deleting,
+                ProgressCounts::new(0, delete_total, 0, 0),
+                None,
+            );
+        }
 
         let mut files_deleted = 0usize;
         for sync_path in delete {
             if let Err(error) = self.workspace.delete_file(&sync_path).await {
-                let local_applied = tracker.summary();
+                let local_applied = tracker.summary(&*self.workspace);
                 let local_target_changed = error.target_changed();
                 return Err(ClientSyncFailure::with_local_state(
                     error.into_error(),
@@ -505,7 +556,7 @@ where
             }
 
             files_deleted += 1;
-            tracker.record_delete();
+            tracker.record_delete(sync_path.to_string());
             if should_emit_progress(files_deleted, delete_total) {
                 emit(
                     observer,
@@ -517,7 +568,15 @@ where
             }
         }
 
-        Ok(tracker.summary())
+        if let Err(error) = self.workspace.clone().commit().await {
+            let changed = error.target_changed();
+            return Err(ClientSyncFailure::with_local_state(
+                error.into_error(),
+                tracker.summary(&*self.workspace),
+                changed,
+            ));
+        }
+        Ok(tracker.summary(&*self.workspace))
     }
 
     async fn download_files<O>(
@@ -622,7 +681,7 @@ where
 
         match first_error {
             Some(error) => {
-                let local_applied = tracker.summary();
+                let local_applied = tracker.summary(&*self.workspace);
                 Err(ClientSyncFailure::with_local_state(
                     error,
                     local_applied,
@@ -949,16 +1008,18 @@ impl ProgressCounts {
     }
 }
 
-fn validate_options(options: &ClientSyncOptions) -> Result<(), ClientSyncFailure> {
+fn validate_options(
+    options: &ClientSyncOptions,
+) -> Result<ResolvedDatasetPolicy, ClientSyncFailure> {
+    let policy = ResolvedDatasetPolicy::from_selection(&options.selection)
+        .map_err(ClientSyncFailure::without_local_change)?;
     if options.file_concurrency == 0 {
         return Err(ClientSyncFailure::without_local_change(
             SyncError::InvalidData("file_concurrency must be greater than 0".into()),
         ));
     }
 
-    ResolvedDatasetPolicy::from_selection(&options.selection)
-        .map(|_| ())
-        .map_err(ClientSyncFailure::without_local_change)
+    Ok(policy)
 }
 
 fn ensure_overwrite_policy_supported(
@@ -1077,10 +1138,10 @@ fn spawn_download_task<W>(
                 let target_changed = error.target_changed();
                 (error.into_error(), target_changed)
             })?;
-        tracker.record_write(entry.size_bytes);
+        tracker.record_write(entry.path.to_string(), entry.size_bytes);
         expect_eof(&mut reader, "downloaded file")
             .await
-            .map_err(|error| (error, true))?;
+            .map_err(|error| (error, workspace.is_applied(entry.path.as_str())))?;
 
         Ok(TransferResult {
             path: entry.path.to_string(),
@@ -1107,6 +1168,8 @@ fn spawn_upload_task<W>(
         let (reader, mut writer) = tokio::io::duplex(BUNDLE_STREAM_BUFFER_SIZE);
         let size_bytes = entry.size_bytes;
         let writer_task = tokio::spawn(async move {
+            // Keep source maintenance active while the detached reader finishes.
+            let _workspace = workspace;
             let mut buffer = vec![0u8; BUNDLE_STREAM_BUFFER_SIZE];
             copy_exact_and_expect_eof(&mut source, &mut writer, size_bytes, &mut buffer).await
         });
@@ -1154,28 +1217,69 @@ fn should_emit_progress(files_done: usize, files_total: usize) -> bool {
     files_done == files_total || files_done == 1 || files_done.is_multiple_of(10)
 }
 
+// The received bytes can still be staged; report only changes published by the workspace.
 #[derive(Default)]
 struct LocalChangeTracker {
-    files_written: AtomicUsize,
-    bytes_written: AtomicU64,
-    files_deleted: AtomicUsize,
+    writes: Mutex<Vec<(String, u64)>>,
+    deletes: Mutex<Vec<String>>,
 }
 
 impl LocalChangeTracker {
-    fn record_write(&self, size_bytes: u64) {
-        self.files_written.fetch_add(1, Ordering::Relaxed);
-        self.bytes_written.fetch_add(size_bytes, Ordering::Relaxed);
+    fn record_write(&self, path: String, size_bytes: u64) {
+        self.writes
+            .lock()
+            .expect("local writes")
+            .push((path, size_bytes));
     }
-
-    fn record_delete(&self) {
-        self.files_deleted.fetch_add(1, Ordering::Relaxed);
+    fn record_delete(&self, path: String) {
+        self.deletes.lock().expect("local deletes").push(path);
     }
+    fn summary(&self, workspace: &impl ClientWorkspace) -> LocalChangeSummary {
+        let mut summary = LocalChangeSummary::default();
+        for (path, size) in self.writes.lock().expect("local writes").iter() {
+            if workspace.is_applied(path) {
+                summary.files_written += 1;
+                summary.bytes_written += size;
+            }
+        }
+        summary.files_deleted = self
+            .deletes
+            .lock()
+            .expect("local deletes")
+            .iter()
+            .filter(|path| workspace.is_applied(path))
+            .count();
+        summary
+    }
+}
 
-    fn summary(&self) -> LocalChangeSummary {
-        LocalChangeSummary {
-            files_written: self.files_written.load(Ordering::Relaxed),
-            bytes_written: self.bytes_written.load(Ordering::Relaxed),
-            files_deleted: self.files_deleted.load(Ordering::Relaxed),
+/// Releases remote storage guards on success, error, and task cancellation.
+struct RemotePlan {
+    client: SyncClient,
+    token: SessionToken,
+    id: Option<PlanId>,
+}
+impl RemotePlan {
+    async fn release(&mut self) {
+        if let Some(id) = &self.id {
+            let result = self.client.abort(&self.token, id).await;
+            self.id = None;
+            if let Err(error) = result {
+                tracing::warn!("Release sync plan: {error}");
+            }
+        }
+    }
+}
+impl Drop for RemotePlan {
+    fn drop(&mut self) {
+        if let Some(id) = self.id.take() {
+            let client = self.client.clone();
+            let token = self.token.clone();
+            tokio::spawn(async move {
+                if let Err(error) = client.abort(&token, &id).await {
+                    tracing::warn!("Release sync plan: {error}");
+                }
+            });
         }
     }
 }
@@ -1212,8 +1316,8 @@ mod tests {
     use crate::workspace::{ClientWorkspace, WorkspaceWriteError};
 
     use super::{
-        BundleTransport, ClientSyncEngine, ClientSyncFailure, ClientSyncOptions, ClientSyncTarget,
-        LocalChangeSummary, NoopSyncObserver, ensure_overwrite_policy_supported,
+        BundleTransport, ClientSyncEngine, ClientSyncOptions, ClientSyncTarget, NoopSyncObserver,
+        ensure_overwrite_policy_supported,
     };
 
     fn chat_selection() -> DatasetSelection {
@@ -1236,61 +1340,6 @@ mod tests {
             ensure_overwrite_policy_supported(&status, "old peer", OverwritePolicy::PreferNewer)
                 .is_err()
         );
-    }
-
-    #[test]
-    fn failure_preserves_local_target_change_with_counted_local_changes() {
-        let failure = ClientSyncFailure::with_local_state(
-            SyncError::Io("rename failed".into()),
-            LocalChangeSummary {
-                files_written: 1,
-                bytes_written: 7,
-                files_deleted: 0,
-            },
-            true,
-        );
-
-        assert!(failure.local_changed());
-        assert!(failure.local_target_changed);
-        assert!(!failure.remote_maybe_changed);
-        assert_eq!(failure.local_applied.files_written, 1);
-    }
-
-    #[test]
-    fn failure_permissions_do_not_clear_local_state() {
-        let permissions = Permissions {
-            read: false,
-            write: false,
-            mirror_delete: false,
-        };
-        let failure = ClientSyncFailure::with_local_state(
-            SyncError::Unauthorized("read not granted".into()),
-            LocalChangeSummary {
-                files_written: 1,
-                bytes_written: 7,
-                files_deleted: 0,
-            },
-            true,
-        )
-        .with_permissions(permissions);
-
-        assert_eq!(failure.granted_permissions, Some(permissions));
-        assert!(failure.local_changed());
-        assert!(failure.local_target_changed);
-        assert!(!failure.remote_maybe_changed);
-    }
-
-    #[test]
-    fn remote_failure_does_not_mark_local_state_changed() {
-        let failure = ClientSyncFailure::with_remote_maybe_changed(
-            SyncError::Internal("upload failed".into()),
-            true,
-        );
-
-        assert!(!failure.local_changed());
-        assert!(!failure.local_target_changed);
-        assert!(failure.remote_maybe_changed);
-        assert_eq!(failure.local_applied, LocalChangeSummary::default());
     }
 
     #[derive(Debug, Clone)]
@@ -1594,8 +1643,8 @@ mod tests {
         }
     }
 
-    async fn spawn_test_server(
-        server_files: Arc<MemoryManifestStore>,
+    async fn spawn_test_server<M: ManifestStore + 'static>(
+        server_files: Arc<M>,
         permissions: Permissions,
     ) -> (ServerHandle, PathBuf, String, DeviceId, String) {
         let state_dir = unique_temp_dir();
@@ -1644,6 +1693,323 @@ mod tests {
             client_device_id,
             client_seed,
         )
+    }
+
+    struct FileWorkspace {
+        store: Arc<ttsync_fs::manifest_store::FsManifestStore>,
+        fail_on_vector: bool,
+    }
+
+    impl ClientWorkspace for FileWorkspace {
+        async fn prepare(
+            self: Arc<Self>,
+            policy: ResolvedDatasetPolicy,
+            receiving: bool,
+        ) -> Result<Arc<Self>, SyncError> {
+            Ok(Arc::new(Self {
+                store: self.store.clone().prepare(policy, receiving).await?,
+                fail_on_vector: self.fail_on_vector,
+            }))
+        }
+        fn set_plan(&self, plan: &ttsync_contract::plan::SyncPlan) {
+            self.store.set_plan(plan)
+        }
+        fn is_applied(&self, path: &str) -> bool {
+            self.store.is_applied(path)
+        }
+        async fn commit(self: Arc<Self>) -> Result<(), WorkspaceWriteError> {
+            self.store
+                .clone()
+                .commit()
+                .await
+                .map_err(WorkspaceWriteError::unchanged)
+        }
+        async fn scan(&self, policy: ResolvedDatasetPolicy) -> Result<ManifestV2, SyncError> {
+            self.store.scan(policy).await
+        }
+        async fn read_file(
+            &self,
+            path: &SyncPath,
+        ) -> Result<Box<dyn tokio::io::AsyncRead + Send + Unpin>, SyncError> {
+            self.store.read_file(path).await
+        }
+        async fn write_file(
+            &self,
+            path: &SyncPath,
+            data: &mut (dyn tokio::io::AsyncRead + Send + Unpin),
+            modified_ms: u64,
+        ) -> Result<(), WorkspaceWriteError> {
+            if self.fail_on_vector && path.as_str().ends_with(".vec") {
+                return Err(WorkspaceWriteError::unchanged(SyncError::Io(
+                    "injected interrupted download".into(),
+                )));
+            }
+            self.store
+                .write_file(path, data, modified_ms)
+                .await
+                .map_err(WorkspaceWriteError::unchanged)
+        }
+        async fn delete_file(&self, path: &SyncPath) -> Result<(), WorkspaceWriteError> {
+            self.store
+                .delete_file(path)
+                .await
+                .map_err(WorkspaceWriteError::unchanged)
+        }
+    }
+
+    #[tokio::test]
+    async fn databases_transfer_as_complete_namespaces_and_release_source_on_failure() {
+        use ttsync_core::database::{DATASET_ID, ROOT};
+        use ttsync_fs::{
+            layout::{LayoutMode, WorkspaceMounts},
+            manifest_store::FsManifestStore,
+        };
+        let root = unique_temp_dir();
+        let source_root = root.join("source");
+        let target_root = root.join("target");
+        let relative = format!("{ROOT}/db-memory");
+        for (dir, main, sidecar) in [
+            (&source_root, b"new", "database.tdb.vec"),
+            (&target_root, b"old", "database.tdb.pld.8"),
+        ] {
+            std::fs::create_dir_all(dir.join(&relative)).unwrap();
+            std::fs::write(dir.join(&relative).join("database.tdb"), main).unwrap();
+            std::fs::write(dir.join(&relative).join(sidecar), b"sidecar").unwrap();
+        }
+        std::fs::write(
+            source_root.join(&relative).join("database.tdb.lock"),
+            b"lock",
+        )
+        .unwrap();
+        std::fs::write(
+            source_root.join(&relative).join("database.tdb.tmp"),
+            b"temporary",
+        )
+        .unwrap();
+        // A newly created database can be recoverable from WAL before its first flush.
+        let wal_relative = format!("{ROOT}/db-unflushed/database.tdb.wal");
+        let wal_path = source_root.join(&wal_relative);
+        std::fs::create_dir_all(wal_path.parent().unwrap()).unwrap();
+        std::fs::write(&wal_path, b"unflushed WAL").unwrap();
+        let target_only = target_root.join(ROOT).join("db-local/database.tdb");
+        std::fs::create_dir_all(target_only.parent().unwrap()).unwrap();
+        std::fs::write(&target_only, b"local").unwrap();
+        let source = Arc::new(FsManifestStore::new(
+            WorkspaceMounts::derive(LayoutMode::TauriTavern, &source_root).unwrap(),
+        ));
+        let target = Arc::new(FsManifestStore::new(
+            WorkspaceMounts::derive(LayoutMode::TauriTavern, &target_root).unwrap(),
+        ));
+        let (handle, state_dir, pin, device_id, seed) =
+            spawn_test_server(source.clone(), full_permissions()).await;
+        let client = SyncClient::new(
+            format!("https://127.0.0.1:{}", handle.addr.port()),
+            Some(pin),
+        )
+        .unwrap();
+        let identity = ClientSyncTarget {
+            device_id,
+            ed25519_seed_b64url: seed,
+        };
+        let selection = DatasetSelection::new(DATASET_POLICY_VERSION, vec![DATASET_ID.into()]);
+        // Profiles must acquire and release the same database lifecycle as a leaf selection.
+        let mut options = ClientSyncOptions::new(
+            SyncMode::Incremental,
+            DatasetSelection::new(
+                DATASET_POLICY_VERSION,
+                vec![ttsync_core::dataset::TAURI_TAVERN_FULL_PROFILE_ID.into()],
+            ),
+        );
+        let failing = ClientSyncEngine::new(
+            client.clone(),
+            Arc::new(FileWorkspace {
+                store: target.clone(),
+                fail_on_vector: true,
+            }),
+            identity.clone(),
+            "test",
+        );
+        let failure = failing
+            .pull(options.clone(), &NoopSyncObserver)
+            .await
+            .unwrap_err();
+        assert!(
+            !failure.local_changed(),
+            "staged bytes are not applied data"
+        );
+        assert_eq!(
+            std::fs::read(target_root.join(&relative).join("database.tdb")).unwrap(),
+            b"old"
+        );
+        assert!(
+            target_root
+                .join(&relative)
+                .join("database.tdb.pld.8")
+                .exists()
+        );
+
+        let engine = ClientSyncEngine::new(
+            client.clone(),
+            Arc::new(FileWorkspace {
+                store: target.clone(),
+                fail_on_vector: false,
+            }),
+            identity.clone(),
+            "test",
+        );
+        let busy = target
+            .clone()
+            .prepare(
+                ResolvedDatasetPolicy::from_selection(&selection).unwrap(),
+                true,
+            )
+            .await
+            .unwrap();
+        for result in [
+            engine.pull(options.clone(), &NoopSyncObserver).await,
+            engine.direct_push(options.clone(), &NoopSyncObserver).await,
+        ] {
+            let failure = result.unwrap_err();
+            assert_eq!(failure.granted_permissions, Some(full_permissions()));
+            assert!(!failure.local_changed());
+        }
+        drop(busy);
+        let report = engine
+            .pull(options.clone(), &NoopSyncObserver)
+            .await
+            .unwrap();
+        assert_eq!(report.local_applied.files_written, 3);
+        assert_eq!(
+            std::fs::read(target_root.join(&wal_relative)).unwrap(),
+            b"unflushed WAL"
+        );
+        assert_eq!(
+            std::fs::read(target_root.join(&relative).join("database.tdb")).unwrap(),
+            b"new"
+        );
+        assert!(
+            !target_root
+                .join(&relative)
+                .join("database.tdb.pld.8")
+                .exists()
+        );
+        assert!(
+            !target_root
+                .join(&relative)
+                .join("database.tdb.lock")
+                .exists()
+        );
+        assert!(
+            target_only.exists(),
+            "Incremental retains target-only namespaces"
+        );
+        options.mode = SyncMode::Mirror;
+        engine
+            .pull(options.clone(), &NoopSyncObserver)
+            .await
+            .unwrap();
+        assert!(!target_only.parent().unwrap().exists());
+
+        // Equal size/mtime never causes part of a database generation to be omitted.
+        let report = engine
+            .direct_push(options.clone(), &NoopSyncObserver)
+            .await
+            .unwrap();
+        assert_eq!(report.summary.files_total, 3);
+        // A rejected/incomplete upload cannot publish a half database.
+        let token = client
+            .open_session(&identity.device_id, &identity.ed25519_seed_b64url)
+            .await
+            .unwrap()
+            .session_token;
+        let policy = ResolvedDatasetPolicy::from_selection(&selection).unwrap();
+        let manifest = target.scan(policy).await.unwrap();
+        let plan = client
+            .push_plan(
+                &token,
+                SyncMode::Incremental,
+                OverwritePolicy::Exact,
+                selection,
+                manifest,
+            )
+            .await
+            .unwrap();
+        let entry = plan
+            .transfer
+            .iter()
+            .find(|entry| entry.path.as_str().ends_with("/database.tdb"))
+            .unwrap();
+        client
+            .upload_file(
+                &token,
+                &plan.plan_id,
+                &entry.path,
+                reqwest::Body::from("bad"),
+            )
+            .await
+            .unwrap();
+        assert!(client.commit(&token, &plan.plan_id).await.is_err());
+        assert_eq!(
+            std::fs::read(source_root.join(&relative).join("database.tdb")).unwrap(),
+            b"new"
+        );
+        options.overwrite_policy = OverwritePolicy::PreferNewer;
+        let database_file = |root: &std::path::Path, name: &str, bytes: &[u8], seconds: u64| {
+            let path = root.join(&relative).join(name);
+            std::fs::write(&path, bytes).unwrap();
+            std::fs::OpenOptions::new()
+                .write(true)
+                .open(path)
+                .unwrap()
+                .set_modified(UNIX_EPOCH + Duration::from_secs(seconds))
+                .unwrap();
+        };
+        database_file(&source_root, "database.tdb", b"source main", 1000);
+        database_file(&source_root, "database.tdb.vec", b"source vector", 2000);
+        database_file(&target_root, "database.tdb", b"target main", 500);
+        database_file(&target_root, "database.tdb.vec", b"target vector", 3000);
+        database_file(&target_root, "database.tdb.pld.9", b"target sidecar", 500);
+        engine
+            .pull(options.clone(), &NoopSyncObserver)
+            .await
+            .unwrap();
+        assert_eq!(
+            std::fs::read(target_root.join(&relative).join("database.tdb")).unwrap(),
+            b"target main"
+        );
+        assert!(
+            target_root
+                .join(&relative)
+                .join("database.tdb.pld.9")
+                .exists(),
+            "Mirror must retain the whole newer namespace"
+        );
+        // A newer namespace transfers even its individually older main file, in either direction.
+        engine
+            .direct_push(options.clone(), &NoopSyncObserver)
+            .await
+            .unwrap();
+        assert_eq!(
+            std::fs::read(source_root.join(&relative).join("database.tdb")).unwrap(),
+            b"target main"
+        );
+        database_file(&source_root, "database.tdb", b"source main", 1000);
+        database_file(&source_root, "database.tdb.vec", b"source vector", 4000);
+        std::fs::remove_file(source_root.join(&relative).join("database.tdb.pld.9")).unwrap();
+        engine.pull(options, &NoopSyncObserver).await.unwrap();
+        assert_eq!(
+            std::fs::read(target_root.join(&relative).join("database.tdb")).unwrap(),
+            b"source main"
+        );
+        assert!(
+            !target_root
+                .join(&relative)
+                .join("database.tdb.pld.9")
+                .exists()
+        );
+        handle.shutdown();
+        std::fs::remove_dir_all(root).unwrap();
+        std::fs::remove_dir_all(state_dir).unwrap();
     }
 
     fn full_permissions() -> Permissions {

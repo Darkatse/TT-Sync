@@ -63,6 +63,7 @@ const TAURI_TAVERN_FULL_EXTRA_DATASETS: &[&str] = &[
     "secrets.api_keys",
     "media.thumbnails",
     "vectors",
+    crate::database::DATASET_ID,
     "backups",
     "agent.run_context",
     "agent.run_workspace_projection",

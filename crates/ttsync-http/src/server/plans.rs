@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use ttsync_contract::path::SyncPath;
 use ttsync_contract::peer::DeviceId;
@@ -22,7 +22,8 @@ pub(super) struct TransferMeta {
 }
 
 #[derive(Debug)]
-pub(super) struct PlanRecord {
+pub(super) struct PlanRecord<M> {
+    pub store: Arc<M>,
     pub direction: PlanDirection,
     pub device_id: DeviceId,
     pub mode: SyncMode,
@@ -32,25 +33,40 @@ pub(super) struct PlanRecord {
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct PlanSnapshot {
+pub(super) struct PlanSnapshot<M> {
+    pub store: Arc<M>,
     pub direction: PlanDirection,
     pub transfer: HashMap<SyncPath, TransferMeta>,
 }
 
-#[derive(Debug, Default)]
-pub(super) struct PlanStore {
-    records: Mutex<HashMap<String, PlanRecord>>,
+#[derive(Debug)]
+pub(super) struct PlanStore<M> {
+    records: Arc<Mutex<HashMap<String, PlanRecord<M>>>>,
 }
 
-impl PlanStore {
+impl<M> Default for PlanStore<M> {
+    fn default() -> Self {
+        Self {
+            records: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+}
+
+impl<M: Send + Sync + 'static> PlanStore<M> {
     pub fn insert(
         &self,
         device_id: DeviceId,
         direction: PlanDirection,
         mode: SyncMode,
         plan: SyncPlan,
+        store: Arc<M>,
     ) -> Result<(), SyncError> {
         let now_ms = now_ms()?;
+        let owns_database = plan
+            .selection
+            .dataset_ids
+            .iter()
+            .any(|id| id == ttsync_core::database::DATASET_ID);
         let mut records = self.records()?;
         retain_unexpired(&mut records, now_ms);
 
@@ -77,8 +93,9 @@ impl PlanStore {
             .collect::<HashMap<_, _>>();
 
         records.insert(
-            plan_id,
+            plan_id.clone(),
             PlanRecord {
+                store,
                 direction,
                 device_id,
                 mode,
@@ -88,10 +105,26 @@ impl PlanStore {
             },
         );
 
+        // Plans now own storage guards. Expire them even when no further request arrives.
+        if owns_database {
+            let records = Arc::downgrade(&self.records);
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(PLAN_TTL_MS)).await;
+                if let Some(records) = records.upgrade()
+                    && let Ok(mut records) = records.lock()
+                {
+                    records.remove(&plan_id);
+                }
+            });
+        }
         Ok(())
     }
 
-    pub fn snapshot(&self, plan_id: &str, device_id: &DeviceId) -> Result<PlanSnapshot, SyncError> {
+    pub fn snapshot(
+        &self,
+        plan_id: &str,
+        device_id: &DeviceId,
+    ) -> Result<PlanSnapshot<M>, SyncError> {
         let now_ms = now_ms()?;
         let mut records = self.records()?;
         retain_unexpired(&mut records, now_ms);
@@ -103,6 +136,7 @@ impl PlanStore {
         ensure_plan_owner(record, device_id)?;
 
         Ok(PlanSnapshot {
+            store: record.store.clone(),
             direction: record.direction,
             transfer: record.transfer.clone(),
         })
@@ -113,7 +147,7 @@ impl PlanStore {
         plan_id: &str,
         device_id: &DeviceId,
         sync_path: &SyncPath,
-    ) -> Result<(PlanDirection, TransferMeta), SyncError> {
+    ) -> Result<(PlanDirection, TransferMeta, Arc<M>), SyncError> {
         let now_ms = now_ms()?;
         let mut records = self.records()?;
         retain_unexpired(&mut records, now_ms);
@@ -129,7 +163,7 @@ impl PlanStore {
             .get(sync_path)
             .ok_or_else(|| SyncError::NotFound("file not in plan".into()))?;
 
-        Ok((record.direction, *meta))
+        Ok((record.direction, *meta, record.store.clone()))
     }
 
     pub fn take_if<F>(
@@ -137,9 +171,9 @@ impl PlanStore {
         plan_id: &str,
         device_id: &DeviceId,
         validate: F,
-    ) -> Result<PlanRecord, SyncError>
+    ) -> Result<PlanRecord<M>, SyncError>
     where
-        F: FnOnce(&PlanRecord) -> Result<(), SyncError>,
+        F: FnOnce(&PlanRecord<M>) -> Result<(), SyncError>,
     {
         let now_ms = now_ms()?;
         let mut records = self.records()?;
@@ -156,18 +190,18 @@ impl PlanStore {
             .ok_or_else(|| SyncError::Internal("plan disappeared while locked".into()))
     }
 
-    fn records(&self) -> Result<MutexGuard<'_, HashMap<String, PlanRecord>>, SyncError> {
+    fn records(&self) -> Result<MutexGuard<'_, HashMap<String, PlanRecord<M>>>, SyncError> {
         self.records
             .lock()
             .map_err(|_| SyncError::Internal("plans mutex poisoned".into()))
     }
 }
 
-fn retain_unexpired(records: &mut HashMap<String, PlanRecord>, now_ms: u64) {
+fn retain_unexpired<M>(records: &mut HashMap<String, PlanRecord<M>>, now_ms: u64) {
     records.retain(|_, record| record.created_at_ms + PLAN_TTL_MS > now_ms);
 }
 
-fn ensure_plan_owner(record: &PlanRecord, device_id: &DeviceId) -> Result<(), SyncError> {
+fn ensure_plan_owner<M>(record: &PlanRecord<M>, device_id: &DeviceId) -> Result<(), SyncError> {
     if &record.device_id != device_id {
         return Err(SyncError::Unauthorized(
             "plan does not belong to this peer".into(),
@@ -224,6 +258,7 @@ mod tests {
                 PlanDirection::Push,
                 SyncMode::Mirror,
                 plan("plan-a", "default-user/chats/a.jsonl"),
+                Arc::new(()),
             )
             .expect("insert plan");
 
@@ -249,6 +284,7 @@ mod tests {
                 PlanDirection::Push,
                 SyncMode::Incremental,
                 plan("plan-b", "default-user/chats/b.jsonl"),
+                Arc::new(()),
             )
             .expect("insert plan");
 

@@ -10,7 +10,7 @@ use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Uri};
 use axum::response::Response;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use futures_util::TryStreamExt;
+use futures_util::{StreamExt, TryStreamExt};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncRead, AsyncReadExt, BufReader};
@@ -168,7 +168,12 @@ where
     }
 
     let policy = ResolvedDatasetPolicy::from_selection(&request.selection)?;
-    let source_manifest = state.manifest_store.scan(policy.clone()).await?;
+    let store = state
+        .manifest_store
+        .clone()
+        .prepare(policy.clone(), false)
+        .await?;
+    let source_manifest = store.scan(policy.clone()).await?;
     let plan_id = PlanId(Uuid::new_v4().to_string());
     let plan = compute_plan_for_policy(
         plan_id,
@@ -180,9 +185,13 @@ where
     )?;
 
     let response = plan.clone();
-    state
-        .plans
-        .insert(peer.device_id, PlanDirection::Pull, request.mode, plan)?;
+    state.plans.insert(
+        peer.device_id,
+        PlanDirection::Pull,
+        request.mode,
+        plan,
+        store,
+    )?;
 
     Ok(Json(response))
 }
@@ -203,7 +212,12 @@ where
     }
 
     let policy = ResolvedDatasetPolicy::from_selection(&request.selection)?;
-    let target_manifest = state.manifest_store.scan(policy.clone()).await?;
+    let store = state
+        .manifest_store
+        .clone()
+        .prepare(policy.clone(), true)
+        .await?;
+    let target_manifest = store.scan(policy.clone()).await?;
     let plan_id = PlanId(Uuid::new_v4().to_string());
     let plan = compute_plan_for_policy(
         plan_id,
@@ -214,10 +228,15 @@ where
         request.overwrite_policy,
     )?;
 
+    store.set_plan(&plan);
     let response = plan.clone();
-    state
-        .plans
-        .insert(peer.device_id, PlanDirection::Push, request.mode, plan)?;
+    state.plans.insert(
+        peer.device_id,
+        PlanDirection::Push,
+        request.mode,
+        plan,
+        store,
+    )?;
 
     Ok(Json(response))
 }
@@ -234,9 +253,10 @@ where
     let peer = authenticate_peer(&state, &headers).await?;
     let sync_path = decode_sync_path_b64(&path_b64)?;
 
-    let (direction, meta) = state
-        .plans
-        .transfer_meta(&plan_id, &peer.device_id, &sync_path)?;
+    let (direction, meta, store) =
+        state
+            .plans
+            .transfer_meta(&plan_id, &peer.device_id, &sync_path)?;
     if direction != PlanDirection::Pull {
         return Err(SyncError::Unauthorized("plan is not a pull plan".into()).into());
     }
@@ -244,8 +264,11 @@ where
         return Err(SyncError::Unauthorized("read not granted".into()).into());
     }
 
-    let reader = state.manifest_store.read_file(&sync_path).await?;
-    let stream = ReaderStream::with_capacity(reader, 64 * 1024);
+    let reader = store.read_file(&sync_path).await?;
+    let stream = ReaderStream::with_capacity(reader, 64 * 1024).map(move |chunk| {
+        let _keep_guard = &store;
+        chunk
+    });
     let body = Body::from_stream(stream);
 
     let mut response = Response::new(body);
@@ -281,9 +304,10 @@ where
     let peer = authenticate_peer(&state, &headers).await?;
     let sync_path = decode_sync_path_b64(&path_b64)?;
 
-    let (direction, meta) = state
-        .plans
-        .transfer_meta(&plan_id, &peer.device_id, &sync_path)?;
+    let (direction, meta, store) =
+        state
+            .plans
+            .transfer_meta(&plan_id, &peer.device_id, &sync_path)?;
     if direction != PlanDirection::Push {
         return Err(SyncError::Unauthorized("plan is not a push plan".into()).into());
     }
@@ -309,8 +333,7 @@ where
     let mut reader = StreamReader::new(stream);
     let mut exact = ExactSizeReader::new(&mut reader, meta.size_bytes);
 
-    state
-        .manifest_store
+    store
         .write_file(&sync_path, &mut exact, meta.modified_ms)
         .await?;
     expect_eof(&mut reader, "uploaded file").await?;
@@ -346,7 +369,7 @@ where
     transfer.sort_by(|(a, _), (b, _)| a.as_str().cmp(b.as_str()));
 
     let (reader, writer) = tokio::io::duplex(64 * 1024);
-    let manifest_store = state.manifest_store.clone();
+    let manifest_store = snapshot.store;
     tokio::spawn(async move {
         let result = write_bundle_download(manifest_store, transfer, writer).await;
         if let Err(e) = result {
@@ -441,8 +464,8 @@ where
             .ok_or_else(|| SyncError::NotFound("file not in plan".into()))?;
 
         let mut exact = ExactSizeReader::new(&mut reader, meta.size_bytes);
-        state
-            .manifest_store
+        snapshot
+            .store
             .write_file(&sync_path, &mut exact, meta.modified_ms)
             .await?;
 
@@ -487,15 +510,30 @@ where
 
     if record.mode == SyncMode::Mirror {
         for path in &record.delete {
-            state.manifest_store.delete_file(path).await?;
+            record.store.delete_file(path).await?;
         }
     }
+    record.store.commit().await?;
 
     let now_ms = now_ms()?;
     let mut grant = peer.grant;
     grant.last_sync_ms = Some(now_ms);
     state.peer_store.save_peer(grant).await?;
 
+    Ok(Json(CommitResponse { ok: true }))
+}
+
+pub(super) async fn abort<M, P>(
+    State(state): State<Arc<ServerState<M, P>>>,
+    headers: HeaderMap,
+    Path(plan_id): Path<String>,
+) -> Result<Json<CommitResponse>, ApiError>
+where
+    M: ManifestStore + 'static,
+    P: PeerStore + 'static,
+{
+    let peer = authenticate_peer(&state, &headers).await?;
+    state.plans.take_if(&plan_id, &peer.device_id, |_| Ok(()))?;
     Ok(Json(CommitResponse { ok: true }))
 }
 

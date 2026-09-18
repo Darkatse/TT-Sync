@@ -16,6 +16,7 @@ pub(super) struct DatasetDefinition {
 #[derive(Debug, Clone, Copy)]
 pub(super) enum DatasetRule {
     Prefix(&'static str),
+    Database,
     AgentWorkspaceComponent(&'static str),
     AgentRunFile(&'static str),
     AgentRunComponent(&'static str),
@@ -24,6 +25,7 @@ pub(super) enum DatasetRule {
 impl DatasetRule {
     pub(super) fn matches(self, relative_path: &str) -> bool {
         match self {
+            Self::Database => crate::database::namespace_directory(relative_path).is_some(),
             Self::Prefix(prefix) => is_same_or_under(relative_path, prefix),
             Self::AgentWorkspaceComponent(component) => {
                 is_agent_workspace_component_path(relative_path, component)
@@ -37,6 +39,11 @@ impl DatasetRule {
 
     pub(super) fn may_match_descendant(self, relative_dir: &str) -> bool {
         match self {
+            Self::Database => {
+                is_same_or_under(crate::database::ROOT, relative_dir)
+                    || crate::database::namespace_directory(&format!("{relative_dir}/database.tdb"))
+                        .is_some()
+            }
             Self::Prefix(prefix) => {
                 is_same_or_under(relative_dir, prefix) || is_same_or_under(prefix, relative_dir)
             }
@@ -144,6 +151,12 @@ pub(super) const DATASETS: &[DatasetDefinition] = &[
         ]
     ),
     public_dataset!("extensions.store", dirs: ["_tauritavern/extension-store"]),
+    DatasetDefinition {
+        id: crate::database::DATASET_ID,
+        scan_roots: &[crate::database::ROOT],
+        files: EMPTY_FILES,
+        rules: &[DatasetRule::Database],
+    },
     public_dataset!("agent.profiles", dirs: ["_tauritavern/agent-profiles/profiles"]),
     public_dataset!("agent.llm_connections", dirs: ["_tauritavern/llm-connections"]),
     public_dataset!(
