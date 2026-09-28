@@ -62,6 +62,7 @@ const AGENT_RUN_HISTORY_FULL_DATASETS: &[&str] = &[
 const TAURI_TAVERN_FULL_EXTRA_DATASETS: &[&str] = &[
     "secrets.api_keys",
     "media.thumbnails",
+    "webview.storage",
     "vectors",
     crate::database::DATASET_ID,
     "backups",

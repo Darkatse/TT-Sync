@@ -16,6 +16,7 @@ pub(super) struct DatasetDefinition {
 #[derive(Debug, Clone, Copy)]
 pub(super) enum DatasetRule {
     Prefix(&'static str),
+    FileNamePrefix(&'static str),
     Database,
     AgentWorkspaceComponent(&'static str),
     AgentRunFile(&'static str),
@@ -27,6 +28,10 @@ impl DatasetRule {
         match self {
             Self::Database => crate::database::namespace_directory(relative_path).is_some(),
             Self::Prefix(prefix) => is_same_or_under(relative_path, prefix),
+            Self::FileNamePrefix(prefix) => std::path::Path::new(relative_path)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with(prefix)),
             Self::AgentWorkspaceComponent(component) => {
                 is_agent_workspace_component_path(relative_path, component)
             }
@@ -47,6 +52,8 @@ impl DatasetRule {
             Self::Prefix(prefix) => {
                 is_same_or_under(relative_dir, prefix) || is_same_or_under(prefix, relative_dir)
             }
+            // A matching file name may appear at any directory level; never prune by directory.
+            Self::FileNamePrefix(_) => true,
             Self::AgentWorkspaceComponent(component) => {
                 agent_workspace_component_may_contain_path(relative_dir, component)
             }
@@ -138,6 +145,12 @@ pub(super) const DATASETS: &[DatasetDefinition] = &[
     public_dataset!("media.thumbnails", dirs: ["default-user/thumbnails"]),
     public_dataset!("media.user_images", dirs: ["default-user/user/images"]),
     public_dataset!("user.files", dirs: ["default-user/user/files"]),
+    DatasetDefinition {
+        id: "webview.storage",
+        scan_roots: &["default-user/user/files"],
+        files: EMPTY_FILES,
+        rules: &[DatasetRule::FileNamePrefix("wvs__")],
+    },
     public_dataset!("user.workflows", dirs: ["default-user/user/workflows"]),
     public_dataset!("vectors", dirs: ["default-user/vectors"]),
     public_dataset!("backups", dirs: ["default-user/backups"]),
@@ -243,3 +256,22 @@ pub(super) const DATASETS: &[DatasetDefinition] = &[
         rules: &[DatasetRule::AgentRunComponent("checkpoints")],
     },
 ];
+
+#[cfg(test)]
+mod webview_storage_tests {
+    use super::*;
+
+    #[test]
+    fn webview_storage_matches_wvs_prefixed_files_only() {
+        let def = dataset_definition("webview.storage").expect("webview.storage must exist");
+        assert!(def.rules.iter().any(|rule| rule.matches("default-user/user/files/wvs__manifest.json")));
+        assert!(def.rules.iter().any(|rule| rule.matches("default-user/user/files/wvs__db__yuzi-phone-qq-v2.json")));
+        assert!(!def.rules.iter().any(|rule| rule.matches("default-user/user/files/readme.txt")));
+        assert!(def.rules.iter().any(|rule| rule.matches("default-user/user/files/nested/wvs__deep.json")), "prefix matches at any depth");
+    }
+
+    #[test]
+    fn webview_storage_is_public() {
+        assert!(public_dataset_ids().contains(&"webview.storage".to_owned()));
+    }
+}
