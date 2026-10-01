@@ -53,6 +53,18 @@ pub(crate) async fn write_file_to_path(
     Ok(())
 }
 
+/// Read an entire sync stream into memory (used for files that must be
+/// translated before being forwarded, e.g. settings and avatar bytes).
+pub(crate) async fn read_all(
+    data: &mut (dyn AsyncRead + Send + Unpin),
+) -> Result<Vec<u8>, SyncError> {
+    let mut bytes = Vec::new();
+    data.read_to_end(&mut bytes)
+        .await
+        .map_err(|e| SyncError::Io(e.to_string()))?;
+    Ok(bytes)
+}
+
 async fn copy_to_file(
     data: &mut (dyn AsyncRead + Send + Unpin),
     file: &mut tokio::fs::File,
